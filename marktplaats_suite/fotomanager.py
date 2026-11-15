@@ -33,7 +33,7 @@ try:
 except ImportError:
     HAS_PSUTIL = False
 
-AFBEELDING_EXTENSIES = ('.jpg', '.jpeg', '.png')
+AFBEELDING_EXTENSIES = ('.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif')
 
 
 def pak_zips_uit(zip_paden, doelmap):
@@ -73,7 +73,10 @@ def pak_zips_uit(zip_paden, doelmap):
                         shutil.copyfileobj(bron, uit)
                     paden.append(doel)
                     aantal += 1
-                meldingen.append(f"📦 {os.path.basename(zip_pad)}: {aantal} foto's uitgepakt")
+                if aantal:
+                    meldingen.append(f"📦 {os.path.basename(zip_pad)}: {aantal} foto{'' if aantal == 1 else chr(39) + 's'} uitgepakt")
+                else:
+                    meldingen.append(f"⚠️ {os.path.basename(zip_pad)}: geen foto's gevonden")
         except zipfile.BadZipFile:
             meldingen.append(f"⚠️ {os.path.basename(zip_pad)} is geen geldige zip, overgeslagen")
         except Exception as e:
@@ -578,34 +581,60 @@ class ImagePreviewWindow(Gtk.Window):
                 self.destroy()
 
 
-class CustomFileChooser(Gtk.Dialog):
-    """Eigen bestandskiezer met grote pictogrammen"""
+def downloads_map():
+    """De Downloads-map van de gebruiker (XDG), anders ~/Downloads, anders de thuismap."""
+    for pad in (GLib.get_user_special_dir(GLib.UserDirectory.DIRECTORY_DOWNLOAD),
+                os.path.expanduser("~/Downloads")):
+        if pad and os.path.isdir(pad):
+            return pad
+    return os.path.expanduser("~")
 
-    def __init__(self, parent, title="Selecteer foto's", select_multiple=True, start_folder=None):
-        super().__init__(title=title, parent=parent, flags=0)
+
+def _zip_fotos(zip_pad):
+    """Namen van de foto's in een zip (zelfde filter als pak_zips_uit)."""
+    import zipfile
+    with zipfile.ZipFile(zip_pad) as z:
+        return [i.filename for i in sorted(z.infolist(), key=lambda i: i.filename)
+                if not i.is_dir() and os.path.basename(i.filename)
+                and not os.path.basename(i.filename).startswith('.') and '__MACOSX' not in i.filename
+                and i.filename.lower().endswith(AFBEELDING_EXTENSIES)]
+
+
+class CustomFileChooser(Gtk.Dialog):
+    """Eigen bestandskiezer met grote pictogrammen: mappen, zip-bestanden en foto's.
+
+    Mappen open je met dubbelklik; zip-bestanden tonen de eerste foto en het aantal foto's erin.
+    Miniaturen worden op de achtergrond geladen, zodat ook een volle Downloads-map meteen opent."""
+
+    MINI = 120
+
+    def __init__(self, parent, title="Selecteer foto's of zip-bestanden", select_multiple=True, start_folder=None):
+        super().__init__(title=title, transient_for=parent, flags=0)
         self.set_default_size(950, 700)
         self.set_modal(True)
 
         self.selected_files = []
         self.select_multiple = select_multiple
+        self._laad_token = 0
+        self._iconen = {}
+        self.current_folder = start_folder if start_folder and os.path.isdir(start_folder) else downloads_map()
 
-        if start_folder and os.path.exists(start_folder):
-            self.current_folder = start_folder
-        else:
-            self.current_folder = os.path.expanduser("~/Downloads")
-
-        self.icon_store = None
-
-        self.add_buttons(
-            Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
-            Gtk.STOCK_OK, Gtk.ResponseType.OK
-        )
+        self.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, Gtk.STOCK_OK, Gtk.ResponseType.OK)
 
         vbox = self.get_content_area()
         vbox.set_spacing(10)
 
         top_box = Gtk.Box(spacing=5)
         vbox.pack_start(top_box, False, False, 0)
+
+        up_btn = Gtk.Button(label="⬆ Omhoog")
+        up_btn.set_tooltip_text("Naar de bovenliggende map")
+        up_btn.connect("clicked", self.go_up)
+        top_box.pack_start(up_btn, False, False, 0)
+
+        dl_btn = Gtk.Button(label="⬇ Downloads")
+        dl_btn.connect("clicked", lambda *_: self.load_folder(downloads_map()))
+        top_box.pack_start(dl_btn, False, False, 0)
 
         self.path_entry = Gtk.Entry()
         self.path_entry.set_placeholder_text("Pad naar map met foto's...")
@@ -621,7 +650,6 @@ class CustomFileChooser(Gtk.Dialog):
         top_box.pack_start(refresh_btn, False, False, 0)
 
         self.folder_label = Gtk.Label()
-        self.folder_label.set_markup("<i>Selecteer een map met de 'Bladeren' knop</i>")
         self.folder_label.set_xalign(0)
         vbox.pack_start(self.folder_label, False, False, 0)
 
@@ -639,6 +667,7 @@ class CustomFileChooser(Gtk.Dialog):
         self.icon_view.set_columns(0)
         self.icon_view.set_selection_mode(Gtk.SelectionMode.MULTIPLE if select_multiple else Gtk.SelectionMode.SINGLE)
         self.icon_view.set_activate_on_single_click(False)
+        self.icon_view.set_tooltip_text("Dubbelklik op een map om hem te openen")
         self.icon_view.connect("item-activated", self.on_item_activated)
         scrolled.add(self.icon_view)
 
@@ -663,121 +692,161 @@ class CustomFileChooser(Gtk.Dialog):
         self.load_folder(self.current_folder)
         self.show_all()
 
+    # --- pictogrammen en miniaturen ---
+    def _icoon(self, soort):
+        if soort not in self._iconen:
+            namen = {"map": ("folder", "inode-directory"),
+                     "zip": ("application-zip", "package-x-generic", "application-x-archive"),
+                     "foto": ("image-x-generic", "image")}[soort]
+            pb = None
+            thema = Gtk.IconTheme.get_default()
+            for naam in namen:
+                try:
+                    pb = thema.load_icon(naam, 96, Gtk.IconLookupFlags.FORCE_SIZE)
+                    break
+                except Exception:
+                    continue
+            if pb is None:
+                pb = GdkPixbuf.Pixbuf.new(GdkPixbuf.Colorspace.RGB, True, 8, 96, 96)
+                pb.fill({"map": 0xD9A44AFF, "zip": 0x8E7CC3FF}.get(soort, 0x88888888))
+            self._iconen[soort] = pb
+        return self._iconen[soort]
+
+    def _pixbuf_van(self, bron):
+        """Kleine miniatuur van een foto (pad of bestandsobject), rechtop volgens EXIF."""
+        from PIL import ImageOps
+        with Image.open(bron) as im:
+            im.draft("RGB", (self.MINI * 2, self.MINI * 2))
+            im = ImageOps.exif_transpose(im)
+            im.thumbnail((self.MINI, self.MINI))
+            buf = io.BytesIO()
+            if im.mode in ("RGBA", "LA", "P"):
+                im.convert("RGBA").save(buf, format="PNG")
+            else:
+                im.convert("RGB").save(buf, format="JPEG", quality=85)
+        loader = GdkPixbuf.PixbufLoader.new()
+        loader.write(buf.getvalue())
+        loader.close()
+        return loader.get_pixbuf()
+
+    def _zip_miniatuur(self, pad):
+        import zipfile
+        namen = _zip_fotos(pad)
+        aantal = {0: "geen foto's", 1: "1 foto"}.get(len(namen), f"{len(namen)} foto's")
+        tekst = f"📦 {os.path.basename(pad)}\n{aantal}"
+        pb = None
+        if namen:
+            with zipfile.ZipFile(pad) as z, z.open(namen[0]) as f:
+                pb = self._pixbuf_van(io.BytesIO(f.read()))
+        return pb, tekst
+
     def load_folder(self, folder_path):
+        self._laad_token += 1
+        token = self._laad_token
         self.icon_store.clear()
         self.selected_files = []
         self.selected_label.set_markup("<small>0 bestanden geselecteerd</small>")
 
-        if not os.path.exists(folder_path):
-            self.folder_label.set_markup(f"<span color='red'>Map bestaat niet: {folder_path}</span>")
+        if not os.path.isdir(folder_path):
+            self.folder_label.set_markup(f"<span color='red'>Map bestaat niet: {GLib.markup_escape_text(folder_path)}</span>")
             return
 
         self.current_folder = folder_path
-        self.folder_label.set_markup(f"<b>{folder_path}</b>")
         self.path_entry.set_text(folder_path)
 
-        image_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff', '.tif']
-        count = 0
-
+        image_extensions = ('.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tiff', '.tif')
+        mappen, zips, fotos = [], [], []
         try:
-            for file in sorted(os.listdir(folder_path)):
-                file_path = os.path.join(folder_path, file)
-                if os.path.isfile(file_path):
-                    ext = os.path.splitext(file)[1].lower()
-                    if ext in image_extensions:
-                        try:
-                            pil_img = Image.open(file_path)
-                            pil_img.thumbnail((120, 120), Image.Resampling.LANCZOS)
-
-                            img_bytes = io.BytesIO()
-
-                            if pil_img.mode in ('RGBA', 'LA', 'P'):
-                                if pil_img.mode == 'P':
-                                    pil_img = pil_img.convert('RGBA')
-                                pil_img.save(img_bytes, format='PNG')
-                            else:
-                                pil_img = pil_img.convert('RGB')
-                                pil_img.save(img_bytes, format='JPEG')
-
-                            img_bytes.seek(0)
-
-                            loader = GdkPixbuf.PixbufLoader.new()
-                            loader.write(img_bytes.getvalue())
-                            loader.close()
-                            pixbuf = loader.get_pixbuf()
-
-                            self.icon_store.append([pixbuf, file, file_path])
-                            count += 1
-                        except Exception as e:
-                            print(f"Fout bij laden {file}: {e}")
-                            try:
-                                pixbuf = GdkPixbuf.Pixbuf.new(GdkPixbuf.Colorspace.RGB, True, 8, 80, 80)
-                                pixbuf.fill(0x88888888)
-                                self.icon_store.append([pixbuf, file, file_path])
-                                count += 1
-                            except:
-                                pass
+            for naam in sorted(os.listdir(folder_path), key=str.lower):
+                if naam.startswith('.'):
+                    continue
+                pad = os.path.join(folder_path, naam)
+                if os.path.isdir(pad):
+                    mappen.append((naam, pad))
+                elif naam.lower().endswith('.zip'):
+                    zips.append((naam, pad))
+                elif naam.lower().endswith(image_extensions):
+                    fotos.append((naam, pad))
         except Exception as e:
-            self.folder_label.set_markup(f"<span color='red'>Fout bij lezen map: {e}</span>")
+            self.folder_label.set_markup(f"<span color='red'>Fout bij lezen map: {GLib.markup_escape_text(str(e))}</span>")
+            return
 
-        self.folder_label.set_markup(f"<b>{folder_path}</b>  <small>({count} afbeeldingen)</small>")
+        werk = []
+        for naam, pad in mappen:
+            self.icon_store.append([self._icoon("map"), f"📁 {naam}", pad])
+        for naam, pad in zips:
+            werk.append((self.icon_store.append([self._icoon("zip"), f"📦 {naam}", pad]), pad, "zip"))
+        for naam, pad in fotos:
+            werk.append((self.icon_store.append([self._icoon("foto"), naam, pad]), pad, "foto"))
+
+        delen = ["1 foto" if len(fotos) == 1 else f"{len(fotos)} foto's"]
+        if zips:
+            delen.append(f"{len(zips)} zip-bestand{'en' if len(zips) != 1 else ''}")
+        if mappen:
+            delen.append(f"{len(mappen)} map{'pen' if len(mappen) != 1 else ''}")
+        self.folder_label.set_markup(f"<b>{GLib.markup_escape_text(folder_path)}</b>  <small>({', '.join(delen)})</small>")
+
+        def miniaturen():
+            for it, pad, soort in werk:
+                if token != self._laad_token:
+                    return
+                try:
+                    if soort == "zip":
+                        pb, tekst = self._zip_miniatuur(pad)
+                        self.icon_store.set_value(it, 1, tekst)
+                    else:
+                        pb = self._pixbuf_van(pad)
+                    if pb is not None:
+                        self.icon_store.set_value(it, 0, pb)
+                except Exception as e:
+                    print(f"Miniatuur mislukt voor {pad}: {e}")
+                yield True
+        stappen = miniaturen()
+        GLib.idle_add(lambda: next(stappen, False))
+
+    def go_up(self, widget):
+        boven = os.path.dirname(self.current_folder.rstrip(os.sep)) or os.sep
+        self.load_folder(boven)
 
     def browse_folder(self, widget):
-        dialog = Gtk.FileChooserDialog(
-            title="Selecteer map met foto's",
-            parent=self,
-            action=Gtk.FileChooserAction.SELECT_FOLDER
-        )
-        dialog.add_buttons(
-            Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
-            Gtk.STOCK_OK, Gtk.ResponseType.OK
-        )
+        dialog = Gtk.FileChooserDialog(title="Selecteer map met foto's", transient_for=self,
+                                       action=Gtk.FileChooserAction.SELECT_FOLDER)
+        dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, Gtk.STOCK_OK, Gtk.ResponseType.OK)
         dialog.set_current_folder(self.current_folder)
-
         if dialog.run() == Gtk.ResponseType.OK:
-            folder_path = dialog.get_filename()
-            self.load_folder(folder_path)
+            self.load_folder(dialog.get_filename())
         dialog.destroy()
 
     def refresh_current_folder(self, widget):
         self.load_folder(self.current_folder)
 
     def on_path_enter(self, widget):
-        folder_path = self.path_entry.get_text().strip()
-        if folder_path and os.path.exists(folder_path):
+        folder_path = os.path.expanduser(self.path_entry.get_text().strip())
+        if folder_path and os.path.isdir(folder_path):
             self.load_folder(folder_path)
 
     def on_item_activated(self, icon_view, path):
-        model = icon_view.get_model()
-        iter_ = model.get_iter(path)
-        file_path = model.get_value(iter_, 2)
-
+        file_path = self.icon_store[path][2]
         if os.path.isdir(file_path):
             self.load_folder(file_path)
+        elif os.path.isfile(file_path):
+            # dubbelklik op een foto of zip: die kiezen (plus wat al geselecteerd was)
+            icon_view.select_path(path)
+            self.on_selection_changed(icon_view)
+            self.response(Gtk.ResponseType.OK)
 
     def on_selection_changed(self, icon_view):
-        self.selected_files = []
-
-        model = icon_view.get_model()
-        iter_ = model.get_iter_first()
-
-        while iter_:
-            path = model.get_path(iter_)
-            if icon_view.path_is_selected(path):
-                file_path = model.get_value(iter_, 2)
-                if os.path.isfile(file_path):
-                    self.selected_files.append(file_path)
-            iter_ = model.iter_next(iter_)
-
-        self.selected_label.set_markup(f"<small><b>{len(self.selected_files)}</b> bestanden geselecteerd</small>")
+        self.selected_files = [self.icon_store[p][2] for p in sorted(icon_view.get_selected_items(),
+                                                                       key=lambda p: p.get_indices()[0])
+                               if os.path.isfile(self.icon_store[p][2])]
+        n_zip = sum(1 for f in self.selected_files if f.lower().endswith('.zip'))
+        extra = f" ({n_zip} zip)" if n_zip else ""
+        self.selected_label.set_markup(f"<small><b>{len(self.selected_files)}</b> bestanden geselecteerd{extra}</small>")
 
     def select_all(self, widget):
-        model = self.icon_view.get_model()
-        iter_ = model.get_iter_first()
-        while iter_:
-            path = model.get_path(iter_)
-            self.icon_view.select_path(path)
-            iter_ = model.iter_next(iter_)
+        for rij in self.icon_store:
+            if os.path.isfile(rij[2]):
+                self.icon_view.select_path(rij.path)
 
     def deselect_all(self, widget):
         self.icon_view.unselect_all()

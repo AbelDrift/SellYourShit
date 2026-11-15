@@ -2498,31 +2498,27 @@ class RegistreerTab(Gtk.Box):
         self.versies = {}
 
     def _on_import_fotos(self, widget):
-        start = ""
-        try:
-            with open(os.path.join(data_dir(), "fotomanager_config.json")) as f:
-                start = json.load(f).get("source_dir", "")
-        except (OSError, ValueError):
-            pass
-        if not start or not os.path.isdir(start):
-            start = os.path.expanduser("~")
+        from marktplaats_suite.fotomanager import downloads_map
+        start = downloads_map()   # altijd in Downloads beginnen
         try:
             from marktplaats_suite.fotomanager import CustomFileChooser
-            dlg = CustomFileChooser(self.main_window, "Selecteer foto's", True, start)
+            dlg = CustomFileChooser(self.main_window, "Selecteer foto's of zip-bestanden", True, start)
             if dlg.run() != Gtk.ResponseType.OK:
                 dlg.destroy()
                 return
             paden = dlg.get_filenames()
             dlg.destroy()
-        except Exception:
-            dlg = Gtk.FileChooserDialog(title="Selecteer foto's", transient_for=self.main_window,
+        except Exception as e:
+            print(f"Eigen fotokiezer mislukt, standaardkiezer gebruikt: {e}")
+            dlg = Gtk.FileChooserDialog(title="Selecteer foto's of zip-bestanden", transient_for=self.main_window,
                                         action=Gtk.FileChooserAction.OPEN)
             dlg.add_buttons("Annuleren", Gtk.ResponseType.CANCEL, "Openen", Gtk.ResponseType.OK)
             dlg.set_select_multiple(True)
             dlg.set_current_folder(start)
             fl = Gtk.FileFilter()
-            fl.set_name("Afbeeldingen")
-            for pat in ("*.jpg", "*.jpeg", "*.png", "*.webp", "*.bmp", "*.JPG", "*.JPEG", "*.PNG"):
+            fl.set_name("Foto's en zip-bestanden")
+            for pat in ("*.jpg", "*.jpeg", "*.png", "*.webp", "*.bmp", "*.zip",
+                        "*.JPG", "*.JPEG", "*.PNG", "*.WEBP", "*.ZIP"):
                 fl.add_pattern(pat)
             dlg.add_filter(fl)
             if dlg.run() != Gtk.ResponseType.OK:
@@ -2533,20 +2529,48 @@ class RegistreerTab(Gtk.Box):
         self._voeg_fotos_toe(paden)
 
     def _voeg_fotos_toe(self, paden):
+        """Kopieert foto's naar de werkmap; zip-bestanden worden uitgepakt (alleen de foto's erin)."""
         from marktplaats_suite.fotoverwerking import FOTO_EXT
-        paden = [p for p in paden if p.lower().endswith(FOTO_EXT) and os.path.isfile(p)]
-        if not paden:
-            return
-        d = os.path.join(self._werkmap_pad(), "originelen")
-        os.makedirs(d, exist_ok=True)
-        for p in sorted(paden):
-            nr = len(self.fotos) + 1
-            doel = os.path.join(d, f"foto_{nr:03d}" + os.path.splitext(p)[1].lower())
-            shutil.copy2(p, doel)
-            self.fotos.append(doel)
+        zips = [p for p in paden if p.lower().endswith(".zip") and os.path.isfile(p)]
+        fotos = sorted(p for p in paden if p.lower().endswith(FOTO_EXT) and os.path.isfile(p))
+        meld = []
+        tmp = None
+        if zips:
+            import tempfile
+            from marktplaats_suite.fotomanager import pak_zips_uit
+            basis = os.path.join(data_dir(), "nieuw_werkmap")
+            os.makedirs(basis, exist_ok=True)
+            tmp = tempfile.mkdtemp(prefix=".zip_", dir=basis)
+            win = self.main_window.get_window()
+            if win:
+                win.set_cursor(Gdk.Cursor.new_from_name(win.get_display(), "wait"))
+                win.get_display().flush()
+            try:
+                uitgepakt, meld = pak_zips_uit(zips, tmp)
+            finally:
+                if win:
+                    win.set_cursor(None)
+            fotos += uitgepakt
+        try:
+            if not fotos:
+                if meld:
+                    self.foto_status.set_markup("<small>" + GLib.markup_escape_text(" ".join(meld)) + "</small>")
+                return
+            d = os.path.join(self._werkmap_pad(), "originelen")
+            os.makedirs(d, exist_ok=True)
+            for p in fotos:
+                nr = len(self.fotos) + 1
+                doel = os.path.join(d, f"foto_{nr:03d}" + os.path.splitext(p)[1].lower())
+                shutil.copy2(p, doel)
+                self.fotos.append(doel)
+        finally:
+            if tmp:
+                shutil.rmtree(tmp, ignore_errors=True)
         self._wis_versies()
         self.preview_versie = "originelen"
         self._ververs_preview()
+        if meld:
+            self.foto_status.set_markup("<small>" + GLib.markup_escape_text(" ".join(meld)) + "</small>")
 
     # --- AI ---
     def _on_ai_instellingen(self, widget=None):

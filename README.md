@@ -92,7 +92,10 @@ De brug in de Suite luistert alleen op 127.0.0.1 en accepteert alleen verzoeken 
 
 ## Nieuw product: foto's, AI en fotoversies in één tab
 
-1. **📷 Import foto's**: kies de foto's. De app werkt op kopieën; je bronbestanden blijven staan.
+1. **📷 Import foto's**: kies foto's of zip-bestanden; de kiezer begint altijd in je Downloads-map.
+   Een zip toont de eerste foto en hoeveel foto's erin zitten; bij importeren worden alleen de foto's
+   eruit gehaald. Mappen open je met dubbelklik (⬆ Omhoog gaat terug). De app werkt op kopieën; je
+   bronbestanden en zips blijven staan.
 2. **🤖 Import details van AI**: de AI bekijkt de foto's en vult titel (max. 60 tekens, altijd met het
    soort voorwerp erin, bijv. *bank*), omschrijving met een `Details:`-lijst (`* `-opsommingstekens),
    categorie, tijdsperiode, stijl, merk, kleur, staat en waarde in. De vraagprijs wordt het gemiddelde
