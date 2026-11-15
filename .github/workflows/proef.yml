@@ -1,0 +1,7 @@
+name: proef
+on: workflow_dispatch
+jobs:
+  proef:
+    runs-on: windows-latest
+    steps:
+      - run: echo hallo
