@@ -6,7 +6,7 @@ Alle instellingen binnen de GUI
 
 import os
 import shutil
-from marktplaats_suite.common import open_extern, data_dir, asset, get_xml_path, TabBasis, run_standalone
+from marktplaats_suite.common import IS_WINDOWS, zoek_programma, open_extern, data_dir, asset, get_xml_path, TabBasis, run_standalone
 import sys
 import time
 import threading
@@ -64,7 +64,7 @@ class ConfigManager:
             "whoppah": {"prijs_factor": 1.25, "ondergrens_factor": 0.85, "stap_procent": 5,
                         "interval": "twee weken", "biedingen": True, "ophalen": True},
             "chrome": {
-                "user_data_dir": os.path.expanduser("~/.config/google-chrome"),
+                "user_data_dir": "",   # leeg = eigen profiel van de app
                 "profile": "Default"
             },
             "paths": {
@@ -190,6 +190,20 @@ def build_description(product):
     if product.get("titel"):
         data["titel"] = product["titel"]
     return advertentietekst(data)
+
+def _firefox_pad():
+    return zoek_programma(["firefox", "firefox-esr"],
+                          [r"%ProgramFiles%\Mozilla Firefox\firefox.exe",
+                           r"%ProgramFiles(x86)%\Mozilla Firefox\firefox.exe",
+                           r"%LOCALAPPDATA%\Mozilla Firefox\firefox.exe"])
+
+
+def _chrome_pad():
+    return zoek_programma(["google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "chrome"],
+                          [r"%ProgramFiles%\Google\Chrome\Application\chrome.exe",
+                           r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe",
+                           r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"])
+
 
 # ============================================
 # MARKTPLAATS AUTOMATOR
@@ -362,15 +376,16 @@ class MarktplaatsAuto:
             os.environ.pop(k, None)
         keuze = self.config.get('browser', 'auto')
         if keuze == 'auto':
-            keuze = 'firefox' if (shutil.which('firefox') or shutil.which('firefox-esr')) else 'chrome'
+            keuze = 'firefox' if _firefox_pad() else 'chrome'
         return self._start_firefox() if keuze == 'firefox' else self._start_chrome()
 
     def _start_firefox(self):
         from selenium.webdriver.firefox.options import Options as FFOptions
         self.logger.info("🚀 Start Firefox...")
-        pad = shutil.which('firefox') or shutil.which('firefox-esr')
+        pad = _firefox_pad()
         if not pad:
-            self.last_error = "Firefox is niet gevonden. Installeer firefox-esr of kies Chrome bij Instellingen."
+            self.last_error = ("Firefox is niet gevonden. Installeer Firefox of kies Chrome bij Instellingen." if IS_WINDOWS
+                               else "Firefox is niet gevonden. Installeer firefox-esr of kies Chrome bij Instellingen.")
             self.logger.error(self.last_error)
             return False
         # Eigen profiel: één keer inloggen op Marktplaats, daarna onthouden.
@@ -403,22 +418,22 @@ class MarktplaatsAuto:
         chrome_config = self.config.get('chrome', {})
         user_data_dir = chrome_config.get('user_data_dir') or ""
         profile = chrome_config.get('profile', "Default")
-        standaard_dirs = {os.path.expanduser("~/.config/google-chrome"),
-                          os.path.expanduser("~/.config/chromium"), ""}
+        standaard_dirs = {os.path.normpath(os.path.expanduser("~/.config/google-chrome")),
+                          os.path.normpath(os.path.expanduser("~/.config/chromium")), "", "."}
+        if IS_WINDOWS:
+            standaard_dirs.add(os.path.normpath(os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\User Data")))
         if os.path.normpath(os.path.expanduser(user_data_dir)) in standaard_dirs:
             # Recente Chrome-versies laten automatisering op het standaardprofiel niet toe,
             # en dan start Chrome niet. Eigen profiel: één keer inloggen, daarna onthouden.
             user_data_dir = os.path.join(data_dir(), "chrome_profiel")
             profile = "Default"
             os.makedirs(user_data_dir, exist_ok=True)
-        for naam in ("google-chrome", "google-chrome-stable", "chromium", "chromium-browser"):
-            pad = shutil.which(naam)
-            if pad:
-                options.binary_location = pad
-                break
+        pad = _chrome_pad()
+        if pad:
+            options.binary_location = pad
         else:
-            self.last_error = ("Chrome of Chromium is niet geïnstalleerd. "
-                               "Draai ./install.sh --met-chrome")
+            self.last_error = ("Google Chrome is niet geïnstalleerd. Installeer Chrome of kies Firefox." if IS_WINDOWS else
+                               "Chrome of Chromium is niet geïnstalleerd. Draai ./install.sh --met-chrome")
             self.logger.error(self.last_error)
             return False
 
@@ -1091,7 +1106,7 @@ class App:
 
         self.browser_combo.set_active_id(self.config.get('browser', 'auto') or 'auto')
         chrome = self.config.get('chrome', {})
-        self.profile_path_entry.set_text(chrome.get('user_data_dir', os.path.expanduser("~/.config/google-chrome")))
+        self.profile_path_entry.set_text(chrome.get('user_data_dir', ""))
         self.profile_name_entry.set_text(chrome.get('profile', "Default"))
 
         paths = self.config.get('paths', {})

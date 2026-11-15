@@ -1,0 +1,89 @@
+name: Windows-installatieprogramma
+
+on:
+  push:
+    branches: [main, windows-build]
+    paths-ignore: ["README.md"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache (GTK-bundel en Python)
+        uses: actions/cache@v4
+        with:
+          path: |
+            cache/GTK3_Gvsbuild_*.zip
+            cache/nuget-*
+            cache/ckpt_base.pth
+          key: windows-bouw-${{ hashFiles('windows/build.ps1') }}
+
+      - name: Bouwen
+        shell: pwsh
+        run: windows\build.ps1
+
+      - name: Testprinter (Microsoft Print to PDF naar een bestand)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force testuitvoer | Out-Null
+          $uit = "$env:GITHUB_WORKSPACE\testuitvoer\barcode_print.pdf"
+          Add-PrinterPort -Name $uit
+          Add-Printer -Name "SYS-testprinter" -DriverName "Microsoft Print To PDF" -PortName $uit
+          "SYS_TESTPRINTER=SYS-testprinter" >> $env:GITHUB_ENV
+          "SYS_TESTPRINTER_UIT=$uit" >> $env:GITHUB_ENV
+          Get-Printer | Select-Object Name, DriverName, PortName | Format-Table -AutoSize
+
+      - name: Testen (programmamap)
+        shell: pwsh
+        run: |
+          & dist\SellYourShit\python\python.exe windows\test_windows.py dist\SellYourShit testuitvoer
+          if ($LASTEXITCODE -ne 0) { throw "test mislukt" }
+
+      - name: Installatieprogramma testen (stil installeren en starten)
+        shell: pwsh
+        run: |
+          $setup = (Get-ChildItem dist\SellYourShit-*-setup.exe).FullName
+          Start-Process -Wait -FilePath $setup -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CURRENTUSER"
+          $app = "$env:LOCALAPPDATA\Programs\SellYourShit"
+          if (-not (Test-Path "$app\start_sellyourshit.pyw")) { throw "niet geïnstalleerd" }
+          & "$app\python\python.exe" -c "import sys; sys.path.insert(0, r'$app'); import start_sellyourshit as s; s.omgeving(); import gi; gi.require_version('Gtk','3.0'); from gi.repository import Gtk; import marktplaats_suite.productmanager; print('geinstalleerde app laadt, GTK', Gtk.get_major_version())"
+          if ($LASTEXITCODE -ne 0) { throw "geïnstalleerde app laadt niet" }
+          Get-ChildItem "$env:APPDATA\Microsoft\Windows\Start Menu\Programs" -Filter "SellYourShit*" | Select-Object Name
+
+      - name: Testuitvoer bewaren
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: testuitvoer
+          path: testuitvoer
+          if-no-files-found: ignore
+
+      - name: Installatieprogramma bewaren
+        uses: actions/upload-artifact@v4
+        with:
+          name: SellYourShit-windows-setup
+          path: dist/SellYourShit-*-setup.exe
+          compression-level: 0
+
+      - name: Publiceren als release
+        if: github.ref == 'refs/heads/main'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $versie = (Select-String -Path marktplaats_suite\__init__.py -Pattern '__version__ = "(.+)"').Matches[0].Groups[1].Value
+          $tag = "v$versie"
+          $setup = (Get-ChildItem dist\SellYourShit-*-setup.exe).FullName
+          gh release view $tag 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag $setup --title "SellYourShit $versie" --notes "Windows: download SellYourShit-$versie-setup.exe en dubbelklik. Linux: zie README (install.sh)." --target $env:GITHUB_SHA
+          } else {
+            gh release upload $tag $setup --clobber
+          }

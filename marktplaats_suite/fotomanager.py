@@ -12,7 +12,7 @@ gi.require_version('GdkPixbuf', '2.0')
 from gi.repository import Gtk, Gdk, GLib, Gio, GdkPixbuf
 import subprocess
 import os
-from marktplaats_suite.common import data_dir, asset
+from marktplaats_suite.common import data_dir, asset, open_in_gimp
 import shutil
 import glob
 import random
@@ -542,8 +542,7 @@ class ImagePreviewWindow(Gtk.Window):
     def open_in_gimp(self, widget):
         try:
             self.save_rotation()
-            subprocess.Popen(["gimp", self.current_image_path],
-                           stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+            open_in_gimp([self.current_image_path])
             self.status_label.set_text("Afbeelding geopend in GIMP")
         except FileNotFoundError:
             self.status_label.set_text("GIMP niet geïnstalleerd")

@@ -9,7 +9,7 @@ gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, Gdk, GLib, GdkPixbuf
 import os
 from marktplaats_suite.voortgang import VoortgangsVenster
-from marktplaats_suite.common import open_extern, data_dir, asset, shared_get, shared_set, is_shared_key
+from marktplaats_suite.common import IS_WINDOWS, open_extern, open_in_gimp, lettertype_vet, installatie_hint, data_dir, asset, shared_get, shared_set, is_shared_key
 import sys
 import json
 import threading
@@ -696,7 +696,16 @@ def get_backend(config):
 
 
 def get_cups_printers():
-    """Haal een lijst van beschikbare CUPS printers op."""
+    """Beschikbare printers: op Windows de Windows-printers, op Linux die van CUPS."""
+    if IS_WINDOWS:
+        try:
+            import win32print
+            flags = win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS
+            namen = [p[2] for p in win32print.EnumPrinters(flags)]
+            standaard = win32print.GetDefaultPrinter()
+            return sorted(namen, key=lambda n: (n != standaard, n.lower()))
+        except Exception:
+            return []
     try:
         result = subprocess.run(["lpstat", "-p"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=5)
         printers = []
@@ -803,8 +812,8 @@ def genereer_barcode(artikelnummer, output_folder, barcode_config=None, count_la
             draw = ImageDraw.Draw(img)
 
             try:
-                font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 20)
-            except:
+                font = ImageFont.truetype(lettertype_vet(), 20)
+            except Exception:
                 font = ImageFont.load_default()
 
             bbox = draw.textbbox((0, 0), count_label, font=font)
@@ -832,8 +841,46 @@ def print_barcode(image_path, printer_config, auto_cut=True):
 
     if methode == "brother_ql":
         _print_barcode_brother_ql(image_path, printer_config, auto_cut)
+    elif IS_WINDOWS:
+        _print_barcode_windows(image_path, printer_config.get("printer_name", ""))
     else:
         _print_barcode_cups(image_path, printer_config.get("printer_name", ""))
+
+
+def _print_barcode_windows(image_path, printer_name):
+    """Print via een gewone Windows-printer (ook een etiketprinter met de Windows-driver).
+
+    De barcode komt op ware grootte (hij is op 300 dpi gemaakt). Is het etiket kleiner, dan wordt hij
+    passend verkleind en zo nodig gedraaid. Op een groot vel (A4) staat hij linksboven, op een etiket
+    in het midden. Het papier- of etiketformaat stel je in bij de printer in Windows."""
+    import win32print
+    import win32ui
+    from PIL import Image, ImageWin
+    naam = printer_name or win32print.GetDefaultPrinter()
+    with Image.open(image_path) as bron:
+        im = bron.convert("RGB")
+        bron_dpi = (bron.info.get("dpi") or (300, 300))[0] or 300
+    dc = win32ui.CreateDC()
+    dc.CreatePrinterDC(naam)
+    try:
+        breed, hoog = dc.GetDeviceCaps(8), dc.GetDeviceCaps(10)        # HORZRES, VERTRES: printbaar gebied
+        dpi_x, dpi_y = dc.GetDeviceCaps(88), dc.GetDeviceCaps(90)      # LOGPIXELSX, LOGPIXELSY
+        w, h = im.width / bron_dpi * dpi_x, im.height / bron_dpi * dpi_y
+        schaal = min(1.0, breed / w, hoog / h)
+        if min(1.0, breed / h, hoog / w) > schaal:                    # gedraaid past hij beter
+            im = im.rotate(90, expand=True)
+            w, h = im.width / bron_dpi * dpi_x, im.height / bron_dpi * dpi_y
+            schaal = min(1.0, breed / w, hoog / h)
+        w, h = max(1, int(w * schaal)), max(1, int(h * schaal))
+        etiket = w > breed * 0.5 or h > hoog * 0.5
+        x, y = ((breed - w) // 2, (hoog - h) // 2) if etiket else (0, 0)
+        dc.StartDoc(os.path.basename(image_path))
+        dc.StartPage()
+        ImageWin.Dib(im).draw(dc.GetHandleOutput(), (x, y, x + w, y + h))
+        dc.EndPage()
+        dc.EndDoc()
+    finally:
+        dc.DeleteDC()
 
 
 def _print_barcode_brother_ql(image_path, printer_config, auto_cut=True):
@@ -1491,7 +1538,7 @@ class SettingsDialog(Gtk.Dialog):
             method_row = Gtk.Box(spacing=5)
             method_row.pack_start(Gtk.Label(label="Methode:"), False, False, 0)
             self.print_method_combo = Gtk.ComboBoxText()
-            self.print_method_combo.append("cups", "CUPS (lp)")
+            self.print_method_combo.append("cups", "Windows-printer" if IS_WINDOWS else "CUPS (lp)")
             self.print_method_combo.append("brother_ql", "Brother QL")
             self.print_method_combo.set_active_id(printer_cfg.get("print_method", "cups"))
             self.print_method_combo.connect("changed", self._on_print_method_changed)
@@ -2745,7 +2792,7 @@ class RegistreerTab(Gtk.Box):
         chk_kleur.set_active(bool(cfg.get("color_enhance", True)) and kan_kleur)
         if not kan_kleur:
             chk_kleur.set_sensitive(False)
-            chk_kleur.set_tooltip_text("Hiervoor is opencv nodig: ./install.sh --met-ai")
+            chk_kleur.set_tooltip_text("Hiervoor is opencv nodig: " + installatie_hint(ai=True))
         box.pack_start(chk_kleur, False, False, 0)
 
         versies_lbl = Gtk.Label()
@@ -2766,7 +2813,8 @@ class RegistreerTab(Gtk.Box):
                 c.set_active(False)
                 c.set_sensitive(False)
             geen = Gtk.Label()
-            geen.set_markup("<small>transparent-background is niet geïnstalleerd: draai <tt>./install.sh --met-ai</tt></small>")
+            geen.set_markup("<small>transparent-background is niet geïnstalleerd: " +
+                            GLib.markup_escape_text(installatie_hint(ai=True)) + "</small>")
             geen.set_xalign(0)
             box.pack_start(geen, False, False, 0)
 
@@ -2831,15 +2879,12 @@ class RegistreerTab(Gtk.Box):
         b_inspect.connect("clicked", inspecteer)
 
         def gimp(_):
-            import subprocess
-            env = {k: v for k, v in os.environ.items() if not k.startswith("QT_")}
             try:
-                subprocess.Popen(["gimp"] + list(self.fotos), env=env, stdout=subprocess.DEVNULL,
-                                 stderr=subprocess.DEVNULL, start_new_session=True)
+                open_in_gimp(self.fotos)
                 self.foto_status.set_markup("<small>GIMP geopend. Bewaar je wijzigingen en klik daarna "
                                             "op 'Verwerk foto's'.</small>")
             except FileNotFoundError:
-                self._toon_foutdialoog("GIMP is niet geïnstalleerd (sudo apt install gimp).")
+                self._toon_foutdialoog("GIMP is niet geïnstalleerd." + ("" if IS_WINDOWS else " (sudo apt install gimp)"))
         b_gimp.connect("clicked", gimp)
 
         dlg.show_all()
@@ -5411,8 +5456,9 @@ class MainWindow(Gtk.Window):
         lbl = Gtk.Label()
         lbl.set_markup(f"<b>{GLib.markup_escape_text(titel)} kon niet worden geladen</b>\n\n"
                        f"{GLib.markup_escape_text(type(fout).__name__ + ': ' + str(fout))}\n\n"
-                       f"<small>{GLib.markup_escape_text(details)}</small>\n\n"
-                       "Draai ./install.sh opnieuw om ontbrekende pakketten te installeren.")
+                       f"<small>{GLib.markup_escape_text(details)}</small>\n\n" +
+                       ("Installeer SellYourShit opnieuw" if IS_WINDOWS else "Draai ./install.sh opnieuw") +
+                       " om ontbrekende pakketten te installeren.")
         lbl.set_line_wrap(True); lbl.set_selectable(True)
         self.notebook.append_page(lbl, Gtk.Label(label=titel))
 

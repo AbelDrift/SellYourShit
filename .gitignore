@@ -6,3 +6,5 @@ venv/
 *.xml
 *_config.json
 thumbnail_cache/
+cache/
+testuitvoer/

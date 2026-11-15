@@ -1,5 +1,12 @@
-"""Gedeelde paden voor alle modules (Debian en Ubuntu, geen distro-aannames)."""
+"""Gedeelde paden en hulpjes voor alle modules (Linux en Windows)."""
+import glob
 import os
+import re
+import shutil
+import subprocess
+import sys
+
+IS_WINDOWS = sys.platform == "win32"
 
 ASSETS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
 
@@ -11,7 +18,10 @@ def data_dir():
     (standaard ~/.local/share/marktplaats-suite).
     """
     pad = os.environ.get("MARKTPLAATS_DATA_DIR")
-    if not pad:
+    if not pad and IS_WINDOWS:
+        basis = os.environ.get("APPDATA") or os.path.join(os.path.expanduser("~"), "AppData", "Roaming")
+        pad = os.path.join(basis, "SellYourShit")
+    elif not pad:
         basis = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
         pad = os.path.join(basis, "marktplaats-suite")
     os.makedirs(pad, exist_ok=True)
@@ -191,10 +201,11 @@ def run_standalone(tab_factory, titel, breedte=900, hoogte=700):
 def open_extern(pad):
     """Open een map/bestand/URL met het standaardprogramma van de gebruiker.
 
-    De Qt-/venv-variabelen van de app (o.a. door OpenCV) worden eruit gehaald;
-    anders kan KDE's Dolphin of een andere Qt-app niet starten.
-    """
-    import os, subprocess
+    Op Linux worden de Qt-/venv-variabelen van de app (o.a. door OpenCV) eruit gehaald;
+    anders kan KDE's Dolphin of een andere Qt-app niet starten."""
+    if IS_WINDOWS:
+        os.startfile(pad)
+        return
     env = {k: v for k, v in os.environ.items()
            if not k.startswith("QT_") and k not in ("LD_LIBRARY_PATH", "PYTHONHOME", "PYTHONPATH")}
     laatste = None
@@ -206,3 +217,53 @@ def open_extern(pad):
         except FileNotFoundError as e:
             laatste = e
     raise laatste or OSError("xdg-open niet gevonden")
+
+
+def zoek_programma(namen, windows_patronen=(), filter_naam=None):
+    """Eerste gevonden programma: eerst op het PATH, op Windows ook op de gebruikelijke installatieplekken."""
+    for naam in namen:
+        pad = shutil.which(naam)
+        if pad:
+            return pad
+    if IS_WINDOWS:
+        for patroon in windows_patronen:
+            for pad in sorted(glob.glob(os.path.expandvars(patroon)), reverse=True):
+                if os.path.isfile(pad) and (filter_naam is None or filter_naam(os.path.basename(pad))):
+                    return pad
+    return None
+
+
+def gimp_pad():
+    return zoek_programma(
+        ["gimp", "gimp-3", "gimp-3.0", "gimp-2.10"],
+        [r"%ProgramFiles%\GIMP*\bin\gimp-*.exe", r"%LOCALAPPDATA%\Programs\GIMP*\bin\gimp-*.exe"],
+        filter_naam=lambda n: re.fullmatch(r"gimp-\d[\d.]*\.exe", n.lower()) is not None)
+
+
+def open_in_gimp(paden):
+    """Opent foto's in GIMP. FileNotFoundError als GIMP er niet is."""
+    gimp = gimp_pad()
+    if not gimp:
+        raise FileNotFoundError("GIMP is niet geïnstalleerd")
+    env = {k: v for k, v in os.environ.items() if not k.startswith("QT_")}
+    extra = {} if IS_WINDOWS else {"start_new_session": True}
+    subprocess.Popen([gimp] + list(paden), env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **extra)
+
+
+def installatie_hint(ai=False):
+    """Hoe je ontbrekende onderdelen installeert (in meldingen)."""
+    if IS_WINDOWS:
+        return "installeer SellYourShit opnieuw met het installatieprogramma"
+    return "./install.sh --met-ai" if ai else "./install.sh"
+
+
+def lettertype_vet():
+    """Pad naar een vet TrueType-lettertype (voor tekst op etiketten), of None."""
+    if IS_WINDOWS:
+        fonts = os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts")
+        kandidaten = [os.path.join(fonts, n) for n in ("arialbd.ttf", "segoeuib.ttf", "verdanab.ttf")]
+    else:
+        kandidaten = ["/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+                      "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
+                      "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"]
+    return next((k for k in kandidaten if os.path.exists(k)), None)

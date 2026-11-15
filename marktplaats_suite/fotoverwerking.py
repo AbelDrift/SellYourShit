@@ -108,7 +108,8 @@ def verwijder_achtergrond(paden, uitmap, voortgang=None, stop=lambda: False):
     Geeft (gelukt, meldingen) terug, met gelukt = {bronpad: pngpad}. Gooit RuntimeError als het
     proces niet kan starten of halverwege wegvalt (bijvoorbeeld door te weinig geheugen)."""
     if not heeft_transparent_background():
-        raise RuntimeError("transparent-background is niet geïnstalleerd. Draai ./install.sh --met-ai.")
+        from marktplaats_suite.common import installatie_hint
+        raise RuntimeError(f"transparent-background is niet geïnstalleerd ({installatie_hint(ai=True)}).")
     os.makedirs(uitmap, exist_ok=True)
     doelen = [os.path.join(uitmap, os.path.splitext(os.path.basename(p))[0] + ".png") for p in paden]
     args = [x for paar in zip(paden, doelen) for x in paar]
@@ -130,9 +131,17 @@ def verwijder_achtergrond(paden, uitmap, voortgang=None, stop=lambda: False):
         if voortgang:
             voortgang(i + 1, len(paden))
 
-    with tempfile.TemporaryFile(mode="w+") as foutlog:
-        proc = subprocess.Popen([sys.executable, "-I", HELPER] + args, stdout=subprocess.PIPE,
-                                stderr=foutlog, stdin=subprocess.DEVNULL, text=True, env=env)
+    python, extra = sys.executable, {}
+    if sys.platform == "win32":
+        # pythonw.exe (de app zonder console) heeft geen gewone uitvoer; python.exe zonder venster wel
+        kandidaat = os.path.join(os.path.dirname(python), "python.exe")
+        if os.path.basename(python).lower() == "pythonw.exe" and os.path.exists(kandidaat):
+            python = kandidaat
+        extra["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    with tempfile.TemporaryFile(mode="w+", encoding="utf-8", errors="replace") as foutlog:
+        proc = subprocess.Popen([python, "-I", HELPER] + args, stdout=subprocess.PIPE, stderr=foutlog,
+                                stdin=subprocess.DEVNULL, text=True, encoding="utf-8", errors="replace",
+                                env=env, **extra)
         regels = queue.Queue()
         lezer = threading.Thread(target=_lees_regels, args=(proc.stdout, regels), daemon=True)
         lezer.start()
@@ -152,7 +161,7 @@ def verwijder_achtergrond(paden, uitmap, voortgang=None, stop=lambda: False):
             verwerk(regels.get())
         code = proc.wait()
         if code != 0:
-            if code == -9:   # SIGKILL: meestal de geheugenbewaking van Linux
+            if code in (-9, 3221225495):   # SIGKILL (geheugenbewaking Linux) / STATUS_NO_MEMORY (Windows)
                 raise RuntimeError("Achtergrond verwijderen is afgebroken door te weinig geheugen. "
                                    "Zet 'Verkleinen naar 50%' aan of gebruik minder foto's tegelijk.")
             foutlog.seek(0)
@@ -193,7 +202,8 @@ def maak_versies(fotos, doelmap, opties, voortgang=None, stop=lambda: False):
     kleur = opties.get("kleur_verbeteren", False)
     if kleur and not heeft_kleurverbetering():
         kleur = False
-        meld.append("Kleuren verbeteren overgeslagen: opencv ontbreekt (./install.sh --met-ai).")
+        from marktplaats_suite.common import installatie_hint
+        meld.append(f"Kleuren verbeteren overgeslagen: opencv ontbreekt ({installatie_hint(ai=True)}).")
 
     # voortgangsbalk: elke fase krijgt een deel naar hoe lang hij ongeveer duurt
     gewicht = {"voor": 3 if kleur else 1, "achter": 8 if achtergrond else 0, "versies": 1}
