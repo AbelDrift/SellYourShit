@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "marktplaats-suite"
-version = "1.0.0"
+dynamic = ["version"]
 description = "Productmanager, fotomanager, barcode scanner en automater voor Marktplaats"
 requires-python = ">=3.9"
 dependencies = ["pillow", "python-barcode", "openpyxl", "python-docx", "Send2Trash",
@@ -18,6 +18,9 @@ marktplaats-suite = "marktplaats_suite.productmanager:main"
 
 [tool.setuptools]
 packages = ["marktplaats_suite", "marktplaats_suite.assets"]
+
+[tool.setuptools.dynamic]
+version = {attr = "marktplaats_suite.__version__"}
 
 [tool.setuptools.package-data]
 marktplaats_suite = ["assets/*"]

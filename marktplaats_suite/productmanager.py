@@ -5335,6 +5335,10 @@ class MainWindow(Gtk.Window):
         vbox.pack_start(self.statusbar, False, False, 0)
         self.status_context = self.statusbar.get_context_id("main")
         self.statusbar.push(self.status_context, "✅ Klaar voor gebruik")
+        from marktplaats_suite import __version__
+        versie_lbl = Gtk.Label()
+        versie_lbl.set_markup(f"<small>SellYourShit {__version__}</small>")
+        self.statusbar.pack_end(versie_lbl, False, False, 6)
 
         self._setup_global_sneltoetsen()
 
@@ -5982,7 +5986,10 @@ def toon_splash(duur_ms=1800):
         titel = Gtk.Label()
         titel.set_markup('<span size="xx-large" weight="bold">SellYourShit</span>')
         box.pack_start(titel, False, False, 0)
-        laden = Gtk.Label(label="Laden…")
+        from marktplaats_suite import __version__
+        laden = Gtk.Label()
+        laden.set_markup(f"<small>versie {__version__}</small>\nLaden…")
+        laden.set_justify(Gtk.Justification.CENTER)
         box.pack_start(laden, False, False, 0)
         win.add(box)
         win.show_all()

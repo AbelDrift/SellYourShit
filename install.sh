@@ -22,6 +22,11 @@ VENV="$PREFIX/venv"
 [ "$(id -u)" -ne 0 ] || { echo "Draai dit als gewone gebruiker, niet als root (sudo wordt zelf gebruikt)."; exit 1; }
 command -v apt-get >/dev/null || { echo "apt-get niet gevonden: dit script is voor Debian/Ubuntu."; exit 1; }
 
+if pgrep -f "python.* -m marktplaats_suite" >/dev/null 2>&1; then
+  echo "!!  SellYourShit draait nog. Sluit de app; na de installatie start je hem opnieuw,"
+  echo "    anders blijf je met de oude versie werken."
+fi
+
 . /etc/os-release 2>/dev/null || true
 echo "==> Systeem: ${PRETTY_NAME:-onbekend} ($(dpkg --print-architecture))"
 
@@ -100,5 +105,10 @@ if [ "$MET_CHROME" -eq 1 ]; then
 fi
 
 case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) echo "Tip: voeg ~/.local/bin toe aan je PATH (log opnieuw in).";; esac
-echo "==> Klaar. Start 'SellYourShit' vanuit het menu, of: sellyourshit"
+VERSIE="$("$VENV/bin/python" -c 'import marktplaats_suite as m; print(m.__version__)' 2>/dev/null || echo '?')"
+echo "==> Klaar: SellYourShit $VERSIE is geïnstalleerd (je ziet het nummer rechtsonder in de app)."
+if pgrep -f "python.* -m marktplaats_suite" >/dev/null 2>&1; then
+  echo "!!  De oude versie draait nog: sluit SellYourShit en start hem opnieuw."
+fi
+echo "    Start 'SellYourShit' vanuit het menu, of: sellyourshit"
 echo "    Gegevens staan in: $PREFIX"
