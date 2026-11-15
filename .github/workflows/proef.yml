@@ -1,7 +1,18 @@
 name: proef
-on: workflow_dispatch
+on:
+  push:
+    branches: [ci-proef]
 jobs:
   proef:
     runs-on: windows-latest
     steps:
-      - run: echo hallo
+      - run: |
+          echo hallo van windows
+          python --version
+          where iscc
+          dir "C:\Program Files (x86)\Inno Setup 6" | Select-Object -First 3
+      - run: echo "proef" > uitvoer.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: proef
+          path: uitvoer.txt
