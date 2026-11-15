@@ -926,212 +926,120 @@ class App:
         self._load_config_to_gui()
 
         self.logger.info("🚀 Klaar om te starten!")
-        self.logger.info("📌 Vul eerst de instellingen in en klik op 'Opslaan'")
 
 
     def _setup_ui(self):
+        """Eén overzicht: starten, instellingen en log. De voortgang komt in een klein apart venster."""
         vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        vbox.set_border_width(10)
         self.window.add(vbox)
 
-        notebook = Gtk.Notebook()
-        vbox.pack_start(notebook, True, True, 0)
+        # --- starten ---
+        actie = Gtk.Box(spacing=8)
+        vbox.pack_start(actie, False, False, 0)
+        self.start_btn = Gtk.Button(label="🚀 Upload alle offline producten naar Marktplaats")
+        self.start_btn.get_style_context().add_class("suggested-action")
+        self.start_btn.connect("clicked", lambda *_: self.start_upload(None, self.window.top()))
+        actie.pack_start(self.start_btn, False, False, 0)
+        self.script_btn = Gtk.Button(label="🧩 Userscripts (Whoppah en Vinted)")
+        self.script_btn.set_tooltip_text("Vul Whoppah en Vinted in je eigen, ingelogde Firefox in met userscripts.")
+        self.script_btn.connect("clicked", self._toon_userscript)
+        actie.pack_start(self.script_btn, False, False, 0)
+        self.status_label = Gtk.Label()
+        self.status_label.set_markup("<span foreground='green'>✅ Klaar</span>")
+        actie.pack_end(self.status_label, False, False, 0)
 
-        # ===== TAB 1: INSTELLINGEN =====
-        settings_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        settings_box.set_border_width(10)
-        notebook.append_page(settings_box, Gtk.Label(label="⚙️ Instellingen"))
+        hint = Gtk.Label()
+        hint.set_markup("<small><i>De voortgang (inloggen, volgende, overslaan, stop) verschijnt in een klein apart venster. "
+                        "Alleen bepaalde producten? Selecteer ze in 📊 Product Management en kies 🚀 Upload naar Marktplaats. "
+                        "Whoppah en Vinted vul je in je eigen Firefox in met de userscripts.</i></small>")
+        hint.set_xalign(0)
+        hint.set_line_wrap(True)
+        vbox.pack_start(hint, False, False, 0)
 
-        platform_hint = Gtk.Label()
-        platform_hint.set_markup("<small><i>ℹ️ De Product Uploader plaatst op <b>Marktplaats</b> (foto's, omschrijving en verzending). "
-                                 "Voor Whoppah en Vinted gebruik je de userscripts (knop 🧩 Userscripts op het Dashboard).</i></small>")
-        platform_hint.set_xalign(0)
-        platform_hint.set_line_wrap(True)
-        settings_box.pack_start(platform_hint, False, False, 0)
+        # --- instellingen ---
+        frame = Gtk.Frame(label=" Instellingen ")
+        vbox.pack_start(frame, False, False, 0)
+        grid = Gtk.Grid(column_spacing=10, row_spacing=6)
+        grid.set_border_width(10)
+        frame.add(grid)
 
-        # Browserkeuze
-        label = Gtk.Label()
-        label.set_markup("<b>Browser</b>")
-        label.set_halign(Gtk.Align.START)
-        settings_box.pack_start(label, False, False, 0)
+        def lbl(tekst):
+            l = Gtk.Label(label=tekst)
+            l.set_halign(Gtk.Align.END)
+            return l
+
+        grid.attach(lbl("Browser:"), 0, 0, 1, 1)
         self.browser_combo = Gtk.ComboBoxText()
         for sleutel, tekst in (("auto", "Automatisch (Firefox als die er is, anders Chrome)"),
-                               ("firefox", "Firefox"), ("chrome", "Chrome / Chromium")):
+                               ("firefox", "Firefox (eigen profiel; je logt één keer in)"),
+                               ("chrome", "Chrome / Chromium")):
             self.browser_combo.append(sleutel, tekst)
         self.browser_combo.set_active_id("auto")
-        settings_box.pack_start(self.browser_combo, False, False, 0)
-        fh = Gtk.Label()
-        fh.set_markup("<small><i>Firefox gebruikt een eigen profiel; je logt één keer in op Marktplaats. "
-                      "Het onderstaande Chrome-profiel geldt alleen voor Chrome.</i></small>")
-        fh.set_xalign(0); fh.set_line_wrap(True)
-        settings_box.pack_start(fh, False, False, 0)
+        grid.attach(self.browser_combo, 1, 0, 3, 1)
 
-        # Chrome profiel sectie
-        label = Gtk.Label()
-        label.set_markup("<b>Chrome Profiel</b>")
-        label.set_halign(Gtk.Align.START)
-        settings_box.pack_start(label, False, False, 0)
-
-        grid = Gtk.Grid()
-        grid.set_column_spacing(10)
-        grid.set_row_spacing(5)
-        grid.set_margin_bottom(10)
-        settings_box.pack_start(grid, False, False, 0)
-
-        label = Gtk.Label(label="Profiel pad:")
-        label.set_halign(Gtk.Align.END)
-        grid.attach(label, 0, 0, 1, 1)
+        grid.attach(lbl("Chrome-profiel:"), 0, 1, 1, 1)
         self.profile_path_entry = Gtk.Entry()
         self.profile_path_entry.set_hexpand(True)
-        grid.attach(self.profile_path_entry, 1, 0, 1, 1)
-
-        label = Gtk.Label(label="Profiel naam:")
-        label.set_halign(Gtk.Align.END)
-        grid.attach(label, 0, 1, 1, 1)
+        self.profile_path_entry.set_tooltip_text("Alleen voor Chrome")
+        grid.attach(self.profile_path_entry, 1, 1, 1, 1)
+        grid.attach(lbl("naam:"), 2, 1, 1, 1)
         self.profile_name_entry = Gtk.Entry()
-        grid.attach(self.profile_name_entry, 1, 1, 1, 1)
+        self.profile_name_entry.set_width_chars(12)
+        self.profile_name_entry.set_tooltip_text("Alleen voor Chrome")
+        grid.attach(self.profile_name_entry, 3, 1, 1, 1)
 
-        # Opslag sectie
-        label = Gtk.Label()
-        label.set_markup("<b>Opslag (lokaal XML-bestand)</b>")
-        label.set_halign(Gtk.Align.START)
-        label.set_margin_top(10)
-        settings_box.pack_start(label, False, False, 0)
-
-        backend_hint = Gtk.Label()
-        backend_hint.set_markup("<small><i>Het XML-bestand stel je centraal in via ⚙️ Instellingen in het hoofdvenster.</i></small>")
-        backend_hint.set_halign(Gtk.Align.START)
-        settings_box.pack_start(backend_hint, False, False, 0)
-
-        self.xml_path_entry = Gtk.Entry()  # alleen-lezen weergave van het centrale pad
-        self.xml_path_entry.set_editable(False)
-        self.xml_path_entry.set_hexpand(True)
-        settings_box.pack_start(self.xml_path_entry, False, False, 0)
-
-        # Paden sectie
-        label = Gtk.Label()
-        label.set_markup("<b>Paden</b>")
-        label.set_halign(Gtk.Align.START)
-        label.set_margin_top(10)
-        settings_box.pack_start(label, False, False, 0)
-
-        grid = Gtk.Grid()
-        grid.set_column_spacing(10)
-        grid.set_row_spacing(5)
-        grid.set_margin_bottom(10)
-        settings_box.pack_start(grid, False, False, 0)
-
-        label = Gtk.Label(label="Afbeeldingen pad:")
-        label.set_halign(Gtk.Align.END)
-        grid.attach(label, 0, 0, 1, 1)
-        path_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
+        grid.attach(lbl("Extra fotomap:"), 0, 2, 1, 1)
+        path_box = Gtk.Box(spacing=5)
         self.image_path_entry = Gtk.Entry()
         self.image_path_entry.set_hexpand(True)
+        self.image_path_entry.set_tooltip_text("Foto's worden eerst in de productmappen gezocht, daarna hier")
         path_box.pack_start(self.image_path_entry, True, True, 0)
         browse_path_btn = Gtk.Button(label="Bladeren")
         browse_path_btn.connect("clicked", self._browse_path)
         path_box.pack_start(browse_path_btn, False, False, 0)
-        grid.attach(path_box, 1, 0, 1, 1)
+        grid.attach(path_box, 1, 2, 3, 1)
 
-        # Voorkeuren sectie
-        label = Gtk.Label()
-        label.set_markup("<b>Voorkeuren</b>")
-        label.set_halign(Gtk.Align.START)
-        label.set_margin_top(10)
-        settings_box.pack_start(label, False, False, 0)
+        grid.attach(lbl("XML-bestand:"), 0, 3, 1, 1)
+        self.xml_path_entry = Gtk.Entry()  # alleen-lezen weergave van het centrale pad
+        self.xml_path_entry.set_editable(False)
+        self.xml_path_entry.set_can_focus(False)
+        self.xml_path_entry.set_tooltip_text("Stel je in via ⚙️ Instellingen rechtsboven in het hoofdvenster")
+        grid.attach(self.xml_path_entry, 1, 3, 3, 1)
 
-        grid = Gtk.Grid()
-        grid.set_column_spacing(10)
-        grid.set_row_spacing(5)
-        settings_box.pack_start(grid, False, False, 0)
-
-        label = Gtk.Label(label="Max titel lengte:")
-        label.set_halign(Gtk.Align.END)
-        grid.attach(label, 0, 0, 1, 1)
+        grid.attach(lbl("Max. titellengte:"), 0, 4, 1, 1)
         self.max_title_entry = Gtk.Entry()
-        self.max_title_entry.set_width_chars(10)
-        grid.attach(self.max_title_entry, 1, 0, 1, 1)
-
-        label = Gtk.Label(label="Wacht tussen producten (sec):")
-        label.set_halign(Gtk.Align.END)
-        grid.attach(label, 0, 1, 1, 1)
+        self.max_title_entry.set_width_chars(6)
+        self.max_title_entry.set_halign(Gtk.Align.START)
+        grid.attach(self.max_title_entry, 1, 4, 1, 1)
+        grid.attach(lbl("Wacht tussen producten (sec):"), 2, 4, 1, 1)
         self.wait_products_entry = Gtk.Entry()
-        self.wait_products_entry.set_width_chars(10)
-        grid.attach(self.wait_products_entry, 1, 1, 1, 1)
+        self.wait_products_entry.set_width_chars(6)
+        grid.attach(self.wait_products_entry, 3, 4, 1, 1)
 
         self.auto_verzending_check = Gtk.CheckButton(
             label="Verzending automatisch instellen (vervoerders en pakketgrootte op basis van afmetingen en gewicht)")
-        grid.attach(self.auto_verzending_check, 0, 2, 2, 1)
+        grid.attach(self.auto_verzending_check, 0, 5, 4, 1)
 
         save_btn = Gtk.Button(label="💾 Opslaan")
+        save_btn.set_halign(Gtk.Align.END)
         save_btn.connect("clicked", self._save_config)
-        settings_box.pack_start(save_btn, False, False, 0)
+        grid.attach(save_btn, 3, 6, 1, 1)
 
-        # ===== TAB 2: DASHBOARD =====
-        dashboard_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        dashboard_box.set_border_width(10)
-        notebook.append_page(dashboard_box, Gtk.Label(label="🎮 Dashboard"))
-
-        self.status_label = Gtk.Label()
-        self.status_label.set_markup("<span foreground='green'>✅ Klaar</span>")
-        dashboard_box.pack_start(self.status_label, False, False, 0)
-
-        btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
-        btn_box.set_halign(Gtk.Align.CENTER)
-        dashboard_box.pack_start(btn_box, False, False, 0)
-
-        self.start_btn = Gtk.Button(label="▶️ Start")
-        self.start_btn.connect("clicked", self._start)
-        btn_box.pack_start(self.start_btn, False, False, 0)
-
-        self.login_btn = Gtk.Button(label="🔑 Ingelogd")
-        self.login_btn.set_sensitive(False)
-        self.login_btn.connect("clicked", self._logged_in)
-        btn_box.pack_start(self.login_btn, False, False, 0)
-
-        self.next_btn = Gtk.Button(label="⏭️ Volgende")
-        self.next_btn.set_sensitive(False)
-        self.next_btn.connect("clicked", self._next)
-        btn_box.pack_start(self.next_btn, False, False, 0)
-
-        self.skip_btn = Gtk.Button(label="⏩ Overslaan")
-        self.skip_btn.set_sensitive(False)
-        self.skip_btn.connect("clicked", self._skip)
-        btn_box.pack_start(self.skip_btn, False, False, 0)
-
-        self.script_btn = Gtk.Button(label="🧩 Userscripts")
-        self.script_btn.set_tooltip_text("Vul Whoppah en Vinted in je eigen, ingelogde Firefox in met userscripts.")
-        self.script_btn.connect("clicked", self._toon_userscript)
-        btn_box.pack_start(self.script_btn, False, False, 0)
-
-        self.stop_btn = Gtk.Button(label="⏹️ Stop")
-        self.stop_btn.set_sensitive(False)
-        self.stop_btn.connect("clicked", self._stop)
-        btn_box.pack_start(self.stop_btn, False, False, 0)
-
-        self.progress_bar = Gtk.ProgressBar()
-        dashboard_box.pack_start(self.progress_bar, False, False, 0)
-        self.progress_label = Gtk.Label(label="0%")
-        dashboard_box.pack_start(self.progress_label, False, False, 0)
-
-        # ===== TAB 3: LOG =====
+        # --- log (ingeklapt) ---
+        log_exp = Gtk.Expander(label="📝 Log van de laatste upload")
+        vbox.pack_start(log_exp, True, True, 0)
         log_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
-        log_box.set_border_width(10)
-        notebook.append_page(log_box, Gtk.Label(label="📝 Log"))
-
-        log_btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
-        log_btn_box.set_halign(Gtk.Align.START)
-        log_box.pack_start(log_btn_box, False, False, 0)
-
+        log_exp.add(log_box)
         clear_btn = Gtk.Button(label="🗑️ Wis log")
+        clear_btn.set_halign(Gtk.Align.START)
         clear_btn.connect("clicked", self._clear_log)
-        log_btn_box.pack_start(clear_btn, False, False, 0)
-
+        log_box.pack_start(clear_btn, False, False, 0)
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_vexpand(True)
-        scrolled.set_hexpand(True)
+        scrolled.set_min_content_height(220)
         scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
         log_box.pack_start(scrolled, True, True, 0)
-
         self.log_text_view = Gtk.TextView()
         self.log_text_view.set_editable(False)
         self.log_text_view.set_wrap_mode(Gtk.WrapMode.WORD)
@@ -1183,19 +1091,11 @@ class App:
         self.config.set('preferences.wait_between_products', int(self.wait_products_entry.get_text().strip() or 3))
         self.config.set('preferences.auto_verzending', self.auto_verzending_check.get_active())
 
-        self.logger.success("✅ Configuratie opgeslagen!")
         if stil:
             return
-
-        dialog = Gtk.MessageDialog(
-            parent=self.window.top(),
-            flags=0,
-            message_type=Gtk.MessageType.INFO,
-            buttons=Gtk.ButtonsType.OK,
-            text="Configuratie opgeslagen!"
-        )
-        dialog.run()
-        dialog.destroy()
+        self.logger.success("Instellingen opgeslagen")
+        if not self.running:
+            self.status_label.set_markup("<span foreground='green'>✅ Instellingen opgeslagen</span>")
 
     def _toon_userscript(self, widget):
         from marktplaats_suite import bridge
@@ -1225,35 +1125,22 @@ class App:
         d.destroy()
 
     def start_upload(self, artikelnummers=None, parent=None):
-        """Start vanuit Product Management: alleen deze artikelnummers (None = alle offline), met een
-        klein los statusvenster in plaats van het Uploader-tabblad."""
+        """Start het plaatsen op Marktplaats: alleen deze artikelnummers, of None = alle offline producten.
+        De voortgang verschijnt in een klein los venster (UploadVenster)."""
         if self.running:
             if self.upload_venster:
                 self.upload_venster.present()
             return
         self.auto.filter_nummers = set(artikelnummers) if artikelnummers else None
-        self.upload_venster = UploadVenster(self, parent, len(artikelnummers) if artikelnummers else None)
-        self._start(None)
-
-    def _start(self, widget):
-        if self.running:
-            return
-        if widget is not None:            # gestart vanuit het Uploader-tabblad: alles
-            self.auto.filter_nummers = None
-
-        self._save_config(widget, stil=True)
-
+        self._save_config(None, stil=True)
+        self.upload_venster = UploadVenster(self, parent or self.window.top(),
+                                            len(artikelnummers) if artikelnummers else None)
         self.running = True
         self.auto._logo_keuze = None
         self.auto.running = True
         self.auto.user_logged_in = False
         self.start_btn.set_sensitive(False)
-        self.login_btn.set_sensitive(True)
-        self.stop_btn.set_sensitive(True)
-        self.next_btn.set_sensitive(False)
-        self.skip_btn.set_sensitive(False)
-        self.status_label.set_markup("<span foreground='blue'>🔄 Bezig met starten...</span>")
-
+        self.status_label.set_markup("<span foreground='blue'>🔄 Bezig met uploaden (zie het aparte venster)</span>")
         threading.Thread(target=self._run, daemon=True).start()
 
     def _run(self):
@@ -1281,22 +1168,17 @@ class App:
 
     def _logged_in(self, widget):
         self.auto.user_logged_in = True
-        self.login_btn.set_sensitive(False)
         if self.upload_venster:
             self.upload_venster.zet_knoppen(ingelogd=False)
         self.logger.info("✅ Ingelogd bevestigd!")
 
     def _next(self, widget):
-        self.next_btn.set_sensitive(False)
-        self.skip_btn.set_sensitive(False)
         if self.upload_venster:
             self.upload_venster.zet_knoppen(volgende=False)
         self.logger.info("⏭️ Door naar volgende...")
         self.auto.go_to_next()
 
     def _skip(self, widget):
-        self.next_btn.set_sensitive(False)
-        self.skip_btn.set_sensitive(False)
         if self.upload_venster:
             self.upload_venster.zet_knoppen(volgende=False)
         self.logger.info("⏩ Overslaan...")
@@ -1362,34 +1244,24 @@ class App:
         self.auto.running = False
         self.auto.stop()
         self.start_btn.set_sensitive(True)
-        self.login_btn.set_sensitive(False)
-        self.stop_btn.set_sensitive(False)
-        self.next_btn.set_sensitive(False)
-        self.skip_btn.set_sensitive(False)
         self.status_label.set_markup("<span foreground='red'>⏹️ Gestopt</span>")
         self.logger.info("⏹️ Gestopt door gebruiker")
         if self.upload_venster:
             self.upload_venster.klaar("⏹️ Gestopt")
 
     def _enable_next(self):
-        self.next_btn.set_sensitive(True)
-        self.skip_btn.set_sensitive(True)
         if self.upload_venster:
             self.upload_venster.zet_knoppen(volgende=True)
 
     def _update_status(self, msg):
-        self.status_label.set_markup(f"<span foreground='blue'>{msg}</span>")
+        self.status_label.set_markup(f"<span foreground='blue'>{GLib.markup_escape_text(msg)}</span>")
         if self.upload_venster:
             self.upload_venster.zet_status(msg)
 
     def _on_error(self, msg):
         self.logger.error(f"❌ {msg}")
-        self.status_label.set_markup(f"<span foreground='red'>❌ Fout: {msg}</span>")
+        self.status_label.set_markup(f"<span foreground='red'>❌ Fout: {GLib.markup_escape_text(msg)}</span>")
         self.start_btn.set_sensitive(True)
-        self.login_btn.set_sensitive(False)
-        self.stop_btn.set_sensitive(False)
-        self.next_btn.set_sensitive(False)
-        self.skip_btn.set_sensitive(False)
         self.running = False
         if self.upload_venster:
             self.upload_venster.klaar(f"❌ {msg}")
@@ -1405,10 +1277,6 @@ class App:
             except Exception:
                 pass
         self.start_btn.set_sensitive(True)
-        self.login_btn.set_sensitive(False)
-        self.stop_btn.set_sensitive(False)
-        self.next_btn.set_sensitive(False)
-        self.skip_btn.set_sensitive(False)
         self.running = False
 
     def _clear_log(self, widget):
@@ -1454,6 +1322,11 @@ class UploadVenster(Gtk.Window):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         box.set_border_width(12)
         self.add(box)
+        wat = Gtk.Label()
+        wat.set_xalign(0)
+        wat.set_markup("<small>" + (f"{aantal} geselecteerd{'e' if aantal != 1 else ''} product{'en' if aantal != 1 else ''}"
+                                    if aantal else "Alle offline producten") + "</small>")
+        box.pack_start(wat, False, False, 0)
         self.status = Gtk.Label()
         self.status.set_xalign(0)
         self.status.set_markup("<b>🔄 Browser starten...</b>")
@@ -1485,6 +1358,18 @@ class UploadVenster(Gtk.Window):
         self.k_sluit.connect("clicked", lambda *_: self._weg())
         self.k_sluit.set_no_show_all(True)
         box.pack_start(self.k_sluit, False, False, 0)
+
+        log_exp = Gtk.Expander(label="Log")
+        log_sw = Gtk.ScrolledWindow()
+        log_sw.set_min_content_height(180)
+        log_sw.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        self.log_view = Gtk.TextView()
+        self.log_view.set_editable(False)
+        self.log_view.set_wrap_mode(Gtk.WrapMode.WORD)
+        self.log_view.modify_font(Pango.FontDescription("Monospace 8"))
+        log_sw.add(self.log_view)
+        log_exp.add(log_sw)
+        box.pack_start(log_exp, True, True, 0)
         Logger.luisteraars.append(self._log)
         self.show_all()
 
@@ -1506,6 +1391,9 @@ class UploadVenster(Gtk.Window):
         kleur = {"❌": "red", "⚠️": "#b9770e", "SUCCESS": "green"}.get(niveau)
         t = GLib.markup_escape_text(tekst[:200])
         self.regel.set_markup(f"<span foreground='{kleur}'>{t}</span>" if kleur else t)
+        buf = self.log_view.get_buffer()
+        buf.insert(buf.get_end_iter(), time.strftime("%H:%M:%S ") + tekst + "\n")
+        self.log_view.scroll_to_mark(buf.get_insert(), 0.0, False, 0.0, 1.0)
         return False
 
     def zet_status(self, msg):
@@ -1530,6 +1418,13 @@ class UploadVenster(Gtk.Window):
 
     def _sluiten_gevraagd(self, *_):
         if self.app.running:
+            d = Gtk.MessageDialog(transient_for=self, flags=0, message_type=Gtk.MessageType.QUESTION,
+                                  buttons=Gtk.ButtonsType.YES_NO, text="Uploaden stoppen?")
+            d.format_secondary_text("Het product dat nu in de browser openstaat wordt niet afgemaakt.")
+            stoppen = d.run() == Gtk.ResponseType.YES
+            d.destroy()
+            if not stoppen:
+                return True
             self.app._stop(None)
         self._weg()
         return True

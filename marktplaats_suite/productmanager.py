@@ -4094,7 +4094,6 @@ class OverzichtTab(Gtk.Box):
                 return
             if overgeslagen:
                 self.omzet_label.set_markup(f"<small>{overgeslagen} product(en) overgeslagen: al online, verkocht of niet voor Marktplaats</small>")
-        app.na_upload = self.herlaad
         app.start_upload(nummers, parent=self.main_window)
 
     def _herstel_omzet_label(self):
@@ -5348,6 +5347,7 @@ class MainWindow(Gtk.Window):
         try:
             from marktplaats_suite.automater import App as AutomaterApp
             self.automater_app = AutomaterApp()
+            self.automater_app.na_upload = self.overzicht_tab.herlaad
             self.notebook.append_page(self.automater_app.window, Gtk.Label(label="🤖 Product Uploader"))
         except (Exception, SystemExit) as e:
             self._voeg_foutmelding_tab_toe("🤖 Product Uploader", e)

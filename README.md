@@ -128,5 +128,8 @@ Voor transparant/wit/eigen achtergrond is achtergrondverwijdering nodig: install
   naar een uploadveld in je browser; titel, nummer, prijs en omschrijving kopieer je met één klik.
 - **🚀 Upload naar Marktplaats** (onderaan, of rechtermuisknop): upload de geselecteerde producten of
   alle offline producten. De voortgang verschijnt in een klein los venster met de knoppen
-  Ingelogd / Volgende / Overslaan / Stop; het hoofdvenster blijft vrij.
+  Ingelogd / Volgende / Overslaan / Stop en een uitklapbare log; het hoofdvenster blijft vrij.
+- Het tabblad **🤖 Product Uploader** is één overzicht: alle offline producten uploaden, de
+  userscripts voor Whoppah/Vinted, de instellingen en de log van de laatste upload. Ook vanaf daar
+  verschijnt de voortgang in het kleine aparte venster.
 
