@@ -743,61 +743,9 @@ def generate_artikelnummer(config, storage, opslaglocatie_code, sublocatie_code,
 
 
 def build_txt_beschrijving(product, config=None):
-    """Genereert omschrijving.txt in het mapje van het artikelnummer."""
-    parts = []
-
-    titel = product.get("titel", "")
-    if titel:
-        parts.append(titel)
-
-    omschrijving = product.get("omschrijving", "")
-    if omschrijving:
-        parts.append(omschrijving)
-
-    specs = []
-    lengte = product.get("lengte", "")
-    breedte = product.get("breedte", "")
-    hoogte = product.get("hoogte", "")
-    gewicht = product.get("gewicht", "")
-    if lengte or breedte or hoogte or gewicht:
-        dims = [f"{x}cm" for x in (lengte, breedte, hoogte) if x]
-        line = f"Afmeting (LxBxH & G): {' x '.join(dims)}"
-        if gewicht:
-            line += f" & {gewicht} kg"
-        specs.append(line)
-    if product.get("conditie"):
-        specs.append(f"Conditie/Staat: {product.get('conditie')}")
-    if product.get("staat_details"):
-        specs.append(f"Schades: {product.get('staat_details')}")
-    waarde_min = product.get("waarde_min", "")
-    waarde_max = product.get("waarde_max", "")
-    if waarde_min:
-        line = f"Waarde: {waarde_min}"
-        if waarde_max:
-            line += f" ~{waarde_max}"
-        specs.append(line)
-    if product.get("artikelnummer"):
-        specs.append(f"Artikelnummer: {product.get('artikelnummer')}")
-    # regels die de AI al in het Details-blok heeft gezet niet dubbel tonen
-    al = (omschrijving or "").lower()
-    dubbel = {"Afmeting": ("* afmeting",), "Conditie/Staat": ("* staat", "* conditie"),
-              "Waarde": ("* waarde", "* geschatte waarde"), "Artikelnummer": ("* artikelnummer",)}
-    specs = [x for x in specs if not any(k in al for k in dubbel.get(x.split(":")[0].split(" (")[0], ()))]
-    if specs:
-        regels = ["* " + x for x in specs]
-        bestaand = parts[-1] if parts else ""
-        if bestaand.rstrip().split("\n")[-1].lstrip().startswith(("* ", "- ")) and "details:" in bestaand.lower():
-            parts[-1] = bestaand.rstrip() + "\n" + "\n".join(regels)   # in hetzelfde Details-blok
-        else:
-            parts.append("Details:\n" + "\n".join(regels))
-
-    # Algemene voorwaarden
-    from marktplaats_suite.voorwaarden import voorwaarden_voor_advertentie
-    voorwaarden = product.get("algemene_voorwaarden") or voorwaarden_voor_advertentie()
-    if voorwaarden:
-        parts.append(voorwaarden)
-
-    return "\n\n".join(parts)
+    """De advertentietekst (ook in omschrijving.txt); zie advertentie.py."""
+    from marktplaats_suite.advertentie import advertentietekst
+    return advertentietekst(product)
 
 
 def maak_product_map(config, product):
@@ -4043,15 +3991,7 @@ class OverzichtTab(Gtk.Box):
         productmap = vind_product_map(artikelnummer, self.config)
         if not os.path.isdir(productmap):
             productmap = None
-        omschrijving = ""
-        if productmap and os.path.exists(os.path.join(productmap, "omschrijving.txt")):
-            try:
-                with open(os.path.join(productmap, "omschrijving.txt"), encoding="utf-8") as f:
-                    omschrijving = f.read()
-            except OSError:
-                pass
-        if not omschrijving:
-            omschrijving = build_txt_beschrijving(product, self.config)
+        omschrijving = build_txt_beschrijving(product, self.config)   # precies wat er geplaatst wordt
         from marktplaats_suite.productdetail import ProductDetailVenster
         ProductDetailVenster(self.main_window, product, productmap, omschrijving,
                              op_bewerken=lambda: self._on_bewerken(None)).show_all()
@@ -4146,6 +4086,10 @@ class OverzichtTab(Gtk.Box):
             bijgewerkt = dialog.get_product()
             try:
                 storage.update_product(artikelnummer, bijgewerkt)
+                map_ = vind_product_map(artikelnummer, self.config)
+                if os.path.isdir(map_):   # omschrijving.txt in de productmap bijwerken
+                    with open(os.path.join(map_, "omschrijving.txt"), "w", encoding="utf-8") as f:
+                        f.write(build_txt_beschrijving(bijgewerkt, self.config))
                 self._push_undo("bewerken", {"artikelnummer": artikelnummer, "oud": oude_product, "nieuw": bijgewerkt})
                 self.herlaad()
             except Exception as e:

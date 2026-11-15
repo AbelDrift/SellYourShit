@@ -183,76 +183,13 @@ from marktplaats_suite.common import COLUMNS
 COL = {naam: idx for idx, naam in enumerate(COLUMNS)}
 
 def build_description(product):
+    """Advertentietekst voor Marktplaats/Vinted, altijd vers uit de productgegevens (advertentie.py)."""
+    from marktplaats_suite.advertentie import advertentietekst
     row = product.get("row", [])
-    def col(naam):
-        # Naam-gebaseerde lookup i.p.v. magische kolomnummers - die braken
-        # eerder al eens stilletjes toen het schema (aanmaaktijd, url_1-5)
-        # veranderde zonder dat de indices hier werden bijgewerkt.
-        idx = COL.get(naam)
-        if idx is None or len(row) <= idx or not row[idx]:
-            return ""
-        return row[idx].strip()
-
-    # Als marktplaats_productmanager.py al een kant-en-klare, opgemaakte
-    # omschrijving.txt in de artikelnummer-map heeft gezet, gebruik die
-    # rechtstreeks - dat is dan de enige plek waar de opmaak wordt beheerd.
-    folder_locatie = col("folder_locatie")
-    if folder_locatie:
-        txt_path = os.path.join(folder_locatie, "omschrijving.txt")
-        if os.path.exists(txt_path):
-            try:
-                with open(txt_path, "r", encoding="utf-8") as f:
-                    inhoud = f.read().strip()
-                if inhoud:
-                    return inhoud
-            except Exception:
-                pass  # val terug op de kolom-opbouw hieronder
-
-    titel = product.get("titel", "")
-    artikelnummer = col("artikelnummer")
-    omschrijving = col("omschrijving")
-    lengte = col("lengte")
-    breedte = col("breedte")
-    hoogte = col("hoogte")
-    gewicht = col("gewicht")
-    conditie = col("conditie")
-    schades = col("staat_details")
-    waarde = col("waarde_min")
-    waarde_extra = col("waarde_max")
-    voorwaarden = col("algemene_voorwaarden")
-
-    parts = []
-    if titel:
-        parts.append(titel)
-    if omschrijving:
-        parts.append(omschrijving)
-
-    specs = []
-    if lengte or breedte or hoogte or gewicht:
-        dims = [f"{x}cm" for x in (lengte, breedte, hoogte) if x]
-        line = f"* Afmeting (LxBxH & G): {' x '.join(dims)}"
-        if gewicht:
-            line += f" & {gewicht} kg"
-        specs.append(line)
-    if conditie:
-        specs.append(f"* Conditie/Staat: {conditie}")
-    if schades:
-        specs.append(f"* Schades: {schades}")
-    if waarde:
-        line = f"* Waarde: {waarde}"
-        if waarde_extra:
-            line += f" ~{waarde_extra}"
-        specs.append(line)
-    if artikelnummer:
-        specs.append(f"* Artikelnummer: {artikelnummer}")
-    if specs:
-        parts.append("\n".join(specs))
-
-    from marktplaats_suite.voorwaarden import voorwaarden_voor_advertentie
-    eind = voorwaarden or voorwaarden_voor_advertentie()
-    if eind:
-        parts.append(eind)
-    return "\n\n".join(parts)
+    data = dict(zip(COLUMNS, [(x or "") for x in row])) if row else dict(product.get("data") or {})
+    if product.get("titel"):
+        data["titel"] = product["titel"]
+    return advertentietekst(data)
 
 # ============================================
 # MARKTPLAATS AUTOMATOR
