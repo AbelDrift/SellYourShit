@@ -6,7 +6,7 @@ Alle instellingen binnen de GUI
 
 import os
 import shutil
-from marktplaats_suite.common import IS_WINDOWS, zoek_programma, open_extern, data_dir, asset, get_xml_path, TabBasis, run_standalone
+from marktplaats_suite.common import IS_WINDOWS, zoek_programma, afbeeldingen_map, open_extern, data_dir, asset, get_xml_path, TabBasis, run_standalone
 import sys
 import time
 import threading
@@ -68,7 +68,7 @@ class ConfigManager:
                 "profile": "Default"
             },
             "paths": {
-                "base_image_path": os.path.expanduser("~/Afbeeldingen")
+                "base_image_path": afbeeldingen_map()
             },
             "preferences": {
                 "max_title_length": 60,
@@ -253,7 +253,7 @@ class MarktplaatsAuto:
             xml = os.path.expanduser(xml)
             kandidaten.append(xml if os.path.isdir(xml) else os.path.dirname(xml))
         kandidaten.append(os.path.expanduser("~/Marktplaats/Producten"))
-        kandidaten.append(os.path.expanduser("~/Afbeeldingen"))
+        kandidaten.append(afbeeldingen_map())
         gezien, uit = set(), []
         for k in kandidaten:
             k = os.path.expanduser(k or "")
@@ -1110,7 +1110,7 @@ class App:
         self.profile_name_entry.set_text(chrome.get('profile', "Default"))
 
         paths = self.config.get('paths', {})
-        self.image_path_entry.set_text(paths.get('base_image_path', os.path.expanduser("~/Afbeeldingen")))
+        self.image_path_entry.set_text(paths.get('base_image_path', afbeeldingen_map()))
 
         prefs = self.config.get('preferences', {})
         self.max_title_entry.set_text(str(prefs.get('max_title_length', 60)))

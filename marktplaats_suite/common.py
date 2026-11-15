@@ -250,6 +250,13 @@ def open_in_gimp(paden):
     subprocess.Popen([gimp] + list(paden), env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **extra)
 
 
+def afbeeldingen_map():
+    """Standaardmap met afbeeldingen van de gebruiker (Windows: Pictures, Linux: ~/Afbeeldingen)."""
+    if IS_WINDOWS:
+        return os.path.join(os.path.expanduser("~"), "Pictures")
+    return os.path.expanduser("~/Afbeeldingen")
+
+
 def installatie_hint(ai=False):
     """Hoe je ontbrekende onderdelen installeert (in meldingen)."""
     if IS_WINDOWS:
