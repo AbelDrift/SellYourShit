@@ -4,6 +4,7 @@ Gebruik: dist\\SellYourShit\\python\\python.exe windows\\test_windows.py dist\\S
 Start de app zonder interactie, registreert een product met twee foto's, haalt de achtergrond weg
 met transparent-background (op de processor), opent het productvenster en maakt schermafdrukken.
 """
+import glob
 import os
 import sys
 import tempfile
@@ -87,9 +88,10 @@ try:
     fams = sorted(f.get_name() for f in fm.list_families())
     print(f"   {type(fm).__name__}: {len(fams)} families, o.a.",
           [f for f in fams if f.startswith(("Segoe", "Consolas", "Arial", "Courier"))][:14], flush=True)
-    print("   GTK-lettertype:", Gtk.Settings.get_default().props.gtk_font_name, flush=True)
+    print("   GTK-lettertype:", Gtk.Settings.get_default().props.gtk_font_name, "| Pango", Pango.version_string(), flush=True)
     ctx = fm.create_context()
     for tekst, font in (("Nieuw Product", "Sans 10"), ("\U0001F4DD Nieuw Product \U0001F680 \u2705 \U0001F4E6", "Sans 10"),
+                        ("\u2699 \u26a0 \u270f \U0001F5D1 \U0001F5BC Instellingen", "Segoe UI 9"),
                         ("log 12:00 INFO", "Monospace 9"), ("gewone tekst", "Segoe UI 9")):
         print(f"   test {font!r} {tekst!r} ...", flush=True)
         lay = Pango.Layout.new(ctx)
@@ -111,6 +113,12 @@ try:
                 x.response(Gtk.ResponseType.OK)
         return True
     GLib.timeout_add(500, sluit_dialogen)
+
+    if sys.platform == "win32":
+        import marktplaats_suite
+        met_vs16 = [os.path.basename(p) for p in glob.glob(os.path.join(os.path.dirname(marktplaats_suite.__file__), "*.py"))
+                    if "\ufe0f" in open(p, encoding="utf-8").read()]
+        controleer(not met_vs16, f"geen emoji-variantkiezers in de app ({met_vs16})")
 
     stap("hoofdvenster")
     from marktplaats_suite import productmanager as pm, __version__
@@ -185,7 +193,7 @@ try:
             det[0].destroy()
             tik(5)
         if w.automater_app is not None:
-            w.notebook.set_current_page(2)
+            w.notebook.set_current_page(w.notebook.page_num(w.automater_app.window))
             tik(10)
             schermafdruk("5_product_uploader.png", w)
 

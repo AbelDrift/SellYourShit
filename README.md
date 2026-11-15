@@ -2,7 +2,8 @@
 
 <p align="center"><img src="marktplaats_suite/assets/icon.png" width="160" alt="SellYourShit logo"></p>
 
-**SellYourShit** is één app met alle Marktplaats-tools van HerNieuw, voor **Debian en Ubuntu** (en afgeleiden):
+**SellYourShit** is één app met alle Marktplaats-tools van HerNieuw, voor **Debian en Ubuntu** (en afgeleiden)
+en **Windows 10/11** (installatieprogramma, zie [Installeren op Windows](#installeren-op-windows)):
 
 Alles in **één venster** met tabs:
 
@@ -20,14 +21,14 @@ Algemene voorwaarden bewerk je in een eigen tekstvak met vet/schuin (knoppen of 
 uit .docx/.txt, een voorbeeld zoals het op Marktplaats verschijnt, en een vinkje om voorwaarden wel of niet
 onder advertenties te plaatsen.
 
-## Installeren
+## Installeren (Debian en Ubuntu)
 
 ```bash
-git clone <deze-repo>
-cd marktplaats-suite
+git clone https://github.com/AbelDrift/SellYourShit.git
+cd SellYourShit
 ./install.sh                 # basis
 ./install.sh --met-chrome    # + Google Chrome (amd64) voor de Automater
-./install.sh --met-ai        # + AI-achtergrondverwijdering (groot: torch/onnx)
+./install.sh --met-ai        # + AI-achtergrondverwijdering (groot: torch)
 ```
 
 Wat het doet: apt-pakketten (`python3-gi`, `gir1.2-gtk-3.0`, `imagemagick`, …), een eigen
@@ -35,10 +36,34 @@ virtuele omgeving in `~/.local/share/marktplaats-suite/venv` (met `--system-site
 dus geen conflict met PEP 668), starters in `~/.local/bin` en het applicatiemenu.
 Verwijderen: `./uninstall.sh` (`--alles` wist ook je gegevens).
 
+## Installeren op Windows
+
+1. Download **`SellYourShit-<versie>-setup.exe`** bij de nieuwste
+   [release](https://github.com/AbelDrift/SellYourShit/releases/latest) (ongeveer 600 MB).
+2. Dubbelklik erop. Je hebt geen beheerdersrechten nodig: de app komt in
+   `%LOCALAPPDATA%\Programs\SellYourShit`, met een snelkoppeling in het Startmenu (en desgewenst op het bureaublad).
+   Zegt Windows *"Windows heeft uw pc beschermd"*? Het installatieprogramma is niet digitaal ondertekend:
+   klik op **Meer informatie** en dan **Toch uitvoeren**.
+3. Klaar. Alles zit erin: Python, GTK, het weghalen van de achtergrond (transparent-background op de processor,
+   het model wordt meegeleverd) en printen via elke Windows-printer.
+
+- **Bijwerken:** download de nieuwe setup.exe en voer hem uit; je producten en instellingen blijven staan.
+- **Verwijderen:** Windows-instellingen → Apps → SellYourShit. Je gegevens blijven staan.
+- **Product Uploader:** installeer Firefox of Google Chrome. **GIMP** is optioneel (voor *Open in GIMP*).
+- **Printen:** kies bij ⚙️ Instellingen → Printer de methode *Windows-printer* en je printer. Een etiketprinter
+  (Brother QL, DYMO) gebruik je met de Windows-driver; het etiketformaat stel je in bij de printerinstellingen van
+  Windows. De barcode komt op ware grootte (op A4 linksboven) en wordt op een klein etiket passend gemaakt.
+- **Gegevens:** `%APPDATA%\SellYourShit` (instellingen, producten.xml); productmappen standaard in
+  `%USERPROFILE%\HERNIEUW\Marktplaats`.
+- **Start de app niet?** De foutmelding staat in `%LOCALAPPDATA%\SellYourShit\sellyourshit.log`.
+
+Het installatieprogramma wordt automatisch gebouwd en getest op een Windows-machine van GitHub
+(`.github/workflows/windows.yml`, zie de map `windows/`), bij elke nieuwe versie.
+
 ## Gegevens
 
 Alles (producten.xml, `suite_config.json` met XML-pad en voorwaarden, instellingen, input/output van de fotomanager, thumbnail-cache) staat in
-`~/.local/share/marktplaats-suite/`, of in `$MARKTPLAATS_DATA_DIR`. Bestaande bestanden uit de
+`~/.local/share/marktplaats-suite/` (Windows: `%APPDATA%\SellYourShit`), of in `$MARKTPLAATS_DATA_DIR`. Bestaande bestanden uit de
 losse apps (`producten.xml`, `productmanager_config.json`, `scanner_config.json`) kopieer je
 naar die map; de fotomanager-instellingen heten nu `fotomanager_config.json`
 (was `~/.marktplaats_manager_config.json`).
@@ -51,7 +76,8 @@ naar die map; de fotomanager-instellingen heten nu `fotomanager_config.json`
 
 ## Bekende beperkingen
 
-- GTK3 onder X11/XWayland (starters zetten `GDK_BACKEND=x11`).
+- Linux: GTK3 onder X11/XWayland (starters zetten `GDK_BACKEND=x11`).
+- Windows: achtergrond weghalen gaat alleen op de processor (geen videokaart); de eerste keer duurt het laden van het model even.
 - De thumbnail-fallback in de scanner leest Marktplaats-pagina's uit en kan breken als de site verandert.
 - Getest op syntax en installeerbaarheid; de GUI zelf moet op een echt Debian/Ubuntu-bureaublad worden uitgeprobeerd.
 

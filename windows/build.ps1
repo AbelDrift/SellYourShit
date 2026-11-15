@@ -78,9 +78,12 @@ Stap "SellYourShit en onderdelen (met achtergrond weghalen op de processor)"
     -c "$root\windows\constraints.txt" "$root[ai]" pywin32
 Controleer "pakketten installeren"
 
+$sp = Join-Path $dist "python\Lib\site-packages"
+& $py "$root\windows\zonder_vs16.py" "$sp\marktplaats_suite"; Controleer "emoji-variantkiezers"
+& $py -m compileall -q -f "$sp\marktplaats_suite"; Controleer "compileall"
+
 # ---- 5. Opruimen: alleen nodig om zelf C++-uitbreidingen te bouwen ----
 Stap "Opruimen"
-$sp = Join-Path $dist "python\Lib\site-packages"
 foreach ($weg in "torch\include", "torch\share\cmake", "torch\test", "caffe2") {
     if (Test-Path "$sp\$weg") { Remove-Item -Recurse -Force "$sp\$weg" }
 }
