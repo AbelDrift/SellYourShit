@@ -97,8 +97,11 @@ De brug in de Suite luistert alleen op 127.0.0.1 en accepteert alleen verzoeken 
    soort voorwerp erin, bijv. *bank*), omschrijving met een `Details:`-lijst (`* `-opsommingstekens),
    categorie, tijdsperiode, stijl, merk, kleur, staat en waarde in. De vraagprijs wordt het gemiddelde
    van de waardeschatting als je die nog niet had ingevuld.
-3. **🖼️ Foto editor**: optioneel extra versies: transparant, witte achtergrond, eigen achtergrond
-   (kleur of afbeelding), en die versies ook met logo/watermerk. Hier kun je ook roteren
+3. **🖼️ Foto editor**: voorbewerking zoals in de oude Product Studio (verkleinen naar 50% en
+   automatisch kleuren verbeteren; geldt ook als je de editor niet opent) en optioneel extra versies:
+   transparant, witte achtergrond, eigen achtergrond (kleur of afbeelding), en die versies ook met
+   logo/watermerk. Achtergrond verwijderen gebeurt met transparent-background in een apart proces,
+   één foto tegelijk. Hier kun je ook roteren
    (inspecteren) of de foto's openen in GIMP. De keuzes onder de preview (original / transparant /
    white / custom bg) laten zien welke versie je bekijkt.
 4. **💾 Product registreren**: artikelnummer, productmap, barcode en alle foto's komen in één keer
@@ -113,7 +116,7 @@ De brug in de Suite luistert alleen op 127.0.0.1 en accepteert alleen verzoeken 
   ChatGPT, DeepSeek of de Gemini-site en plak het antwoord terug (ook via **📋 Plak AI-tekst**).
 
 Voor transparant/wit/eigen achtergrond is achtergrondverwijdering nodig: installeer met
-`./install.sh --met-ai` (rembg of transparent-background).
+`./install.sh --met-ai` (transparent-background).
 
 ## Product Management
 

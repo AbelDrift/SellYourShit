@@ -2359,6 +2359,8 @@ class RegistreerTab(Gtk.Box):
         self._werkmap = None
         self.preview_versie = "originelen"
         self.foto_status = None
+        self.laatste_foto_opties = None   # keuzes uit de foto-editor voor dit product
+        self._foto_bezig = False
         # restanten van een eerdere sessie opruimen
         shutil.rmtree(os.path.join(data_dir(), "nieuw_werkmap"), ignore_errors=True)
 
@@ -2472,6 +2474,8 @@ class RegistreerTab(Gtk.Box):
             self._toon_foutdialoog(f"Kon foto niet openen: {e}")
 
     def _on_preview_key(self, view, event):
+        if self._foto_bezig:
+            return False
         if event.keyval == Gdk.KEY_Delete and self.preview_versie == "originelen":
             for pad in view.get_selected_items():
                 bestand = self.preview_store[pad][2]
@@ -2717,10 +2721,27 @@ class RegistreerTab(Gtk.Box):
         box = dlg.get_content_area()
         box.set_spacing(8)
         box.set_border_width(12)
+        from marktplaats_suite.fotoverwerking import heeft_transparent_background, heeft_kleurverbetering
         uitleg = Gtk.Label()
-        uitleg.set_markup("De originelen blijven altijd bewaard. Vink aan welke extra versies je wilt:")
+        uitleg.set_markup("De originelen blijven altijd onbewerkt bewaard.\n\n<b>Voorbewerking</b> "
+                          "<small>(geldt ook als je de editor niet opent)</small>")
         uitleg.set_xalign(0)
         box.pack_start(uitleg, False, False, 0)
+        chk_klein = Gtk.CheckButton(label="Verkleinen naar 50% (veel sneller, minder geheugen, kleinere bestanden)")
+        chk_klein.set_active(cfg.get("resize_50", True))
+        box.pack_start(chk_klein, False, False, 0)
+        kan_kleur = heeft_kleurverbetering()
+        chk_kleur = Gtk.CheckButton(label="Kleuren verbeteren (automatisch)")
+        chk_kleur.set_active(bool(cfg.get("color_enhance", True)) and kan_kleur)
+        if not kan_kleur:
+            chk_kleur.set_sensitive(False)
+            chk_kleur.set_tooltip_text("Hiervoor is opencv nodig: ./install.sh --met-ai")
+        box.pack_start(chk_kleur, False, False, 0)
+
+        versies_lbl = Gtk.Label()
+        versies_lbl.set_markup("\n<b>Extra versies</b> <small>(achtergrond verwijderen met transparent-background)</small>")
+        versies_lbl.set_xalign(0)
+        box.pack_start(versies_lbl, False, False, 0)
 
         chk_tr = Gtk.CheckButton(label="Transparante achtergrond (PNG)")
         chk_tr.set_active(cfg.get("nieuw_transparant", False))
@@ -2730,6 +2751,14 @@ class RegistreerTab(Gtk.Box):
         chk_cu.set_active(cfg.get("nieuw_custom", False))
         for c in (chk_tr, chk_wit, chk_cu):
             box.pack_start(c, False, False, 0)
+        if not heeft_transparent_background():
+            for c in (chk_tr, chk_wit, chk_cu):
+                c.set_active(False)
+                c.set_sensitive(False)
+            geen = Gtk.Label()
+            geen.set_markup("<small>transparent-background is niet geïnstalleerd: draai <tt>./install.sh --met-ai</tt></small>")
+            geen.set_xalign(0)
+            box.pack_start(geen, False, False, 0)
 
         rij = Gtk.Grid(column_spacing=8, row_spacing=6)
         rij.set_margin_start(24)
@@ -2806,6 +2835,7 @@ class RegistreerTab(Gtk.Box):
         dlg.show_all()
         antwoord = dlg.run()
         opties = {
+            "verkleinen": chk_klein.get_active(), "kleur_verbeteren": chk_kleur.get_active(),
             "transparant": chk_tr.get_active(), "wit": chk_wit.get_active(), "custom": chk_cu.get_active(),
             "met_logo": chk_logo.get_active(),
             "bg_kleur": "#%02x%02x%02x" % tuple(int(c * 255) for c in (kleur.get_rgba().red, kleur.get_rgba().green, kleur.get_rgba().blue)),
@@ -2813,6 +2843,10 @@ class RegistreerTab(Gtk.Box):
             "watermerk": wm.get_filename() or "", "logo": lg.get_filename() or "",
         }
         dlg.destroy()
+        cfg_nieuw = {"resize_50": opties["verkleinen"]}
+        if kan_kleur:
+            cfg_nieuw["color_enhance"] = opties["kleur_verbeteren"]
+        self._bewaar_foto_config(cfg_nieuw)
         self._bewaar_foto_config({
             "nieuw_transparant": opties["transparant"], "nieuw_wit": opties["wit"],
             "nieuw_custom": opties["custom"], "nieuw_logo": opties["met_logo"],
@@ -2821,28 +2855,40 @@ class RegistreerTab(Gtk.Box):
         })
         if antwoord != Gtk.ResponseType.OK:
             return
+        self.laatste_foto_opties = opties
         self._verwerk_fotos(opties)
+
+    def _standaard_foto_opties(self):
+        """Foto-editor niet gebruikt: alleen de voorbewerking (50%, kleuren) uit de editor-instellingen."""
+        cfg = self._foto_config()
+        return {"verkleinen": cfg.get("resize_50", True), "kleur_verbeteren": cfg.get("color_enhance", True)}
 
     def _verwerk_fotos(self, opties, klaar=None):
         from marktplaats_suite.fotoverwerking import maak_versies
+        if self._foto_bezig:
+            return
+        self._foto_bezig = True
         stop = {"v": False}
         venster = VoortgangsVenster(self.main_window, "Foto's verwerken", op_annuleren=lambda: stop.update(v=True))
-        self.foto_editor_btn.set_sensitive(False)
+        for b in (self.foto_editor_btn, self.import_fotos_btn, self.opslaan_btn):
+            b.set_sensitive(False)
         fotos = list(self.fotos)
         doel = self._werkmap_pad()
 
         def werk():
-            fout, uit = None, {}
+            fout, uit, meld = None, {}, []
             try:
-                uit = maak_versies(fotos, doel, opties, voortgang=venster.zet, stop=lambda: stop["v"])
+                uit, meld = maak_versies(fotos, doel, opties, voortgang=venster.zet, stop=lambda: stop["v"])
             except Exception as e:
                 fout = str(e)
             venster.sluit()
-            GLib.idle_add(self._verwerken_klaar, uit, fout, stop["v"], klaar)
+            GLib.idle_add(self._verwerken_klaar, uit, fout, stop["v"], klaar, meld)
         threading.Thread(target=werk, daemon=True).start()
 
-    def _verwerken_klaar(self, uit, fout, gestopt, klaar):
-        self.foto_editor_btn.set_sensitive(True)
+    def _verwerken_klaar(self, uit, fout, gestopt, klaar, meld=()):
+        self._foto_bezig = False
+        for b in (self.foto_editor_btn, self.import_fotos_btn, self.opslaan_btn):
+            b.set_sensitive(True)
         if fout:
             self._toon_foutdialoog(fout)
         elif not gestopt:
@@ -2852,6 +2898,9 @@ class RegistreerTab(Gtk.Box):
                     self.preview_versie = k
                     break
         self._ververs_preview()
+        if meld:
+            self.foto_status.set_markup("<small><span foreground='#b9770e'>⚠️ " +
+                                        GLib.markup_escape_text(" ".join(meld)) + "</span></small>")
         if klaar:
             klaar(not fout and not gestopt)
         return False
@@ -2878,11 +2927,8 @@ class RegistreerTab(Gtk.Box):
 
     def _bewaar_fotos_in_map(self, folder):
         """Verplaatst de fotoversies uit de werkmap naar de productmap en ruimt op."""
-        if not self.fotos:
+        if not self.fotos or not self._werkmap:
             return ""
-        from marktplaats_suite.fotoverwerking import maak_versies
-        if not self.versies:      # geen foto-editor gebruikt: originelen + JPEG-versie voor de Uploader
-            maak_versies(list(self.fotos), self._werkmap_pad(), {})
         n = 0
         for sub in sorted(os.listdir(self._werkmap)):
             bron = os.path.join(self._werkmap, sub)
@@ -2902,6 +2948,7 @@ class RegistreerTab(Gtk.Box):
         self._werkmap = None
         self.fotos = []
         self.versies = {}
+        self.laatste_foto_opties = None
         self.preview_versie = "originelen"
         self._ververs_preview()
 
@@ -2945,6 +2992,13 @@ class RegistreerTab(Gtk.Box):
         rij_naam = self.rij_combo.get_active_text()
         if not (opslaglocatie_naam and sublocatie_naam and rij_naam):
             self._toon_fout("Kies een opslaglocatie, sublocatie en rij.")
+            return
+
+        if self.fotos and not self.versies:
+            # Eerst de foto's verwerken (verkleinen e.d.) in de achtergrond, daarna verder met opslaan.
+            if not self._foto_bezig:
+                opties = self.laatste_foto_opties or self._standaard_foto_opties()
+                self._verwerk_fotos(opties, klaar=lambda ok: ok and self._on_opslaan(widget))
             return
 
         opslaglocatie_code = self.config.get("opslaglocatie_codes", {}).get(opslaglocatie_naam, "X")

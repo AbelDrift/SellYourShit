@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SellYourShit - installatie voor Debian (11+) en Ubuntu (20.04+) en afgeleiden.
 # Gebruik:  ./install.sh [--met-ai] [--met-chrome]
-#   --met-ai      ook AI-achtergrondverwijdering (transparent-background, rembg, opencv; groot!)
+#   --met-ai      ook AI-achtergrondverwijdering (transparent-background en opencv; groot!)
 #   --met-chrome  Google Chrome installeren (alleen amd64) voor de Automater
 set -euo pipefail
 
@@ -42,6 +42,8 @@ if [ "$MET_AI" -eq 1 ]; then
 else
   "$VENV/bin/python" -m pip install "$SRC"
 fi
+# rembg wordt niet meer gebruikt (alleen transparent-background); oude installatie opruimen
+"$VENV/bin/python" -m pip uninstall -y rembg >/dev/null 2>&1 || true
 
 echo "==> Starters"
 mkdir -p "$HOME/.local/bin" "$HOME/.local/share/applications" "$PREFIX"

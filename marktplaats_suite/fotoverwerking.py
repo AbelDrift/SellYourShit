@@ -1,28 +1,41 @@
 """Fotoversies maken voor een nieuw product (geen GTK; draait in een achtergrondthread).
 
 Resultaat in de doelmap (zelfde mappen als de oude Product Studio, dus de Uploader werkt ongewijzigd):
-  originelen/       de foto's zoals ze zijn
+  originelen/       de foto's zoals ze zijn (volle grootte, onbewerkt)
   transparant/      PNG zonder achtergrond (vierkant)
-  zonder_logo/      JPEG: wit (of het origineel als wit niet is gevraagd)
+  zonder_logo/      JPEG: witte achtergrond, of de foto zelf als 'wit' niet is gekozen
   met_logo/         idem, met watermerk/logo
   zonder_logo_bg/   JPEG met eigen achtergrond (kleur of afbeelding)
   met_logo_bg/      idem, met watermerk/logo
+
+Voorbewerking zoals in de oude Product Studio: draaien volgens EXIF, verkleinen naar 50% en
+eventueel kleuren verbeteren. Achtergrond verwijderen gebeurt alleen met transparent-background,
+in een apart proces (achtergrond_helper.py), zodat een geheugenpiek of crash van het model de app
+niet meeneemt. Er staat steeds maar één foto tegelijk in het geheugen.
 """
 import glob
+import importlib.util
 import os
+import queue
 import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 
 from PIL import Image, ImageOps
 
 FOTO_EXT = (".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif")
+VERSIE_MAPPEN = ("transparant", "zonder_logo", "met_logo", "zonder_logo_bg", "met_logo_bg")
+HELPER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "achtergrond_helper.py")
 
 
-def _open(pad):
-    im = Image.open(pad)
-    return ImageOps.exif_transpose(im)
+def heeft_transparent_background():
+    return importlib.util.find_spec("transparent_background") is not None
+
+
+def heeft_kleurverbetering():
+    return all(importlib.util.find_spec(m) is not None for m in ("cv2", "numpy", "tqdm"))
 
 
 def _naar_rgb(im, achtergrond=(255, 255, 255)):
@@ -43,7 +56,8 @@ def _vierkant(im):
 
 def _achtergrond_afbeelding(pad, grootte):
     """Schaal op de kortste zijde en crop in het midden (zelfde als de oude Studio)."""
-    bg = Image.open(pad).convert("RGB")
+    with Image.open(pad) as bron:
+        bg = bron.convert("RGB")
     w, h = grootte
     schaal = max(w / bg.width, h / bg.height)
     bg = bg.resize((max(w, round(bg.width * schaal)), max(h, round(bg.height * schaal))), Image.LANCZOS)
@@ -55,10 +69,12 @@ def _logo_en_watermerk(jpg, watermerk, logo):
     """Watermerk over de hele foto, logo rechtsboven (max. 25% van de breedte)."""
     basis = jpg.convert("RGBA")
     if watermerk and os.path.exists(watermerk):
-        wm = Image.open(watermerk).convert("RGBA").resize(basis.size, Image.LANCZOS)
+        with Image.open(watermerk) as w:
+            wm = w.convert("RGBA").resize(basis.size, Image.LANCZOS)
         basis = Image.alpha_composite(basis, wm)
     if logo and os.path.exists(logo):
-        lg = Image.open(logo).convert("RGBA")
+        with Image.open(logo) as l:
+            lg = l.convert("RGBA")
         maxb = max(1, basis.width // 4)
         if lg.width > maxb:
             lg = lg.resize((maxb, max(1, round(lg.height * maxb / lg.width))), Image.LANCZOS)
@@ -66,80 +82,103 @@ def _logo_en_watermerk(jpg, watermerk, logo):
     return basis.convert("RGB")
 
 
-def verwijder_achtergrond(paden, uitmap):
-    """Zet PNG's zonder achtergrond in uitmap (zelfde bestandsnaam .png). Probeert rembg, dan
-    transparent-background. Geeft een lijst paden terug; gooit RuntimeError als geen van beide werkt."""
-    os.makedirs(uitmap, exist_ok=True)
-    try:
-        from rembg import remove
-    except Exception:
-        remove = None
-    if remove:
-        uit = []
-        for p in paden:
-            doel = os.path.join(uitmap, os.path.splitext(os.path.basename(p))[0] + ".png")
-            with open(p, "rb") as f:
-                data = remove(f.read())
-            with open(doel, "wb") as f:
-                f.write(data)
-            uit.append(doel)
-        return uit
+def _bereid_voor(bron, doel, verkleinen):
+    """Draait volgens EXIF, verkleint eventueel naar 50% en slaat op als JPEG."""
+    with Image.open(bron) as im:
+        icc = im.info.get("icc_profile")
+        im = _naar_rgb(ImageOps.exif_transpose(im))
+    if verkleinen:
+        im = im.resize((max(1, im.width // 2), max(1, im.height // 2)), Image.LANCZOS)
+    im.save(doel, "JPEG", quality=95, **({"icc_profile": icc} if icc else {}))
 
-    tb = os.path.join(os.path.dirname(sys.executable), "transparent-background")
-    if os.path.isfile(tb):
-        cmd = [tb]
-    elif shutil.which("transparent-background"):
-        cmd = ["transparent-background"]
-    else:
-        try:
-            import transparent_background  # noqa: F401
-            cmd = [sys.executable, "-c", "from transparent_background.Remover import console; console()"]
-        except Exception:
-            raise RuntimeError("Geen achtergrondverwijderaar gevonden. Installeer met ./install.sh --met-ai "
-                               "(rembg of transparent-background).")
-    tmp = tempfile.mkdtemp()
-    try:
-        for p in paden:
-            shutil.copy2(p, os.path.join(tmp, os.path.basename(p)))
-        env = {k: v for k, v in os.environ.items() if not k.startswith("QT_")}
-        r = subprocess.run(cmd + ["--source", tmp, "--dest", uitmap, "--type", "rgba", "--mode", "base",
-                                  "--device", "cpu", "--format", "png"],
-                           capture_output=True, text=True, timeout=1800, env=env)
-        if r.returncode != 0:
-            raise RuntimeError("Achtergrond verwijderen mislukt: " + (r.stderr or r.stdout)[-300:])
-    finally:
-        shutil.rmtree(tmp, ignore_errors=True)
-    uit = []
-    for p in paden:
-        doel = os.path.join(uitmap, os.path.splitext(os.path.basename(p))[0] + ".png")
-        if os.path.exists(doel):
-            uit.append(doel)
-    if not uit:
-        raise RuntimeError("Achtergrond verwijderen gaf geen resultaat.")
-    return uit
+
+def _verbeter_kleur(pad):
+    from marktplaats_suite.image_enhancer import auto_enhance
+    auto_enhance(pad, pad)
+
+
+def _lees_regels(stroom, wachtrij):
+    for regel in stroom:
+        wachtrij.put(regel)
+
+
+def verwijder_achtergrond(paden, uitmap, voortgang=None, stop=lambda: False):
+    """Maakt met transparent-background voor elke foto een PNG zonder achtergrond in uitmap.
+
+    Geeft (gelukt, meldingen) terug, met gelukt = {bronpad: pngpad}. Gooit RuntimeError als het
+    proces niet kan starten of halverwege wegvalt (bijvoorbeeld door te weinig geheugen)."""
+    if not heeft_transparent_background():
+        raise RuntimeError("transparent-background is niet geïnstalleerd. Draai ./install.sh --met-ai.")
+    os.makedirs(uitmap, exist_ok=True)
+    doelen = [os.path.join(uitmap, os.path.splitext(os.path.basename(p))[0] + ".png") for p in paden]
+    args = [x for paar in zip(paden, doelen) for x in paar]
+    env = {k: v for k, v in os.environ.items() if not k.startswith("QT_")}
+    gelukt, meld = {}, []
+
+    def verwerk(regel):
+        delen = regel.strip().split(" ", 2)
+        if len(delen) < 2 or delen[0] not in ("KLAAR", "FOUT") or not delen[1].isdigit():
+            return  # overige uitvoer van het model negeren
+        i = int(delen[1]) - 1
+        if not 0 <= i < len(paden):
+            return
+        if delen[0] == "KLAAR" and os.path.exists(doelen[i]):
+            gelukt[paden[i]] = doelen[i]
+        else:
+            reden = delen[2] if len(delen) > 2 else "onbekende fout"
+            meld.append(f"Foto {i + 1}: achtergrond verwijderen mislukt ({reden}).")
+        if voortgang:
+            voortgang(i + 1, len(paden))
+
+    with tempfile.TemporaryFile(mode="w+") as foutlog:
+        proc = subprocess.Popen([sys.executable, "-I", HELPER] + args, stdout=subprocess.PIPE,
+                                stderr=foutlog, stdin=subprocess.DEVNULL, text=True, env=env)
+        regels = queue.Queue()
+        lezer = threading.Thread(target=_lees_regels, args=(proc.stdout, regels), daemon=True)
+        lezer.start()
+        while True:
+            try:
+                verwerk(regels.get(timeout=0.3))
+                continue
+            except queue.Empty:
+                pass
+            if stop():
+                proc.kill()
+                proc.wait()
+                return gelukt, meld
+            if not lezer.is_alive():
+                break
+        while not regels.empty():
+            verwerk(regels.get())
+        code = proc.wait()
+        if code != 0:
+            if code == -9:   # SIGKILL: meestal de geheugenbewaking van Linux
+                raise RuntimeError("Achtergrond verwijderen is afgebroken door te weinig geheugen. "
+                                   "Zet 'Verkleinen naar 50%' aan of gebruik minder foto's tegelijk.")
+            foutlog.seek(0)
+            staart = foutlog.read()[-600:].strip()
+            raise RuntimeError(f"Achtergrond verwijderen mislukt (code {code}).\n{staart}")
+    return gelukt, meld
 
 
 def maak_versies(fotos, doelmap, opties, voortgang=None, stop=lambda: False):
     """fotos: lijst paden. opties (dict):
-         transparant, wit, custom (bool), met_logo (bool)
+         verkleinen (bool, standaard True)   -> naar 50%, zoals de oude Product Studio
+         kleur_verbeteren (bool)             -> automatisch (opencv nodig)
+         transparant, wit, custom, met_logo (bool)
          bg_kleur ('#rrggbb') of bg_afbeelding (pad)  -> voor 'custom'
          watermerk, logo (paden)
-       Geeft {"mapnaam": [paden]} terug."""
-    def stap(f, tekst):
-        if voortgang:
-            voortgang(f, tekst)
-
-    os.makedirs(doelmap, exist_ok=True)
-    uit = {}
+       Geeft (uit, meldingen) terug; uit = {"mapnaam": [paden]}."""
     n = len(fotos)
-    nodig_png = opties.get("transparant") or opties.get("wit") or opties.get("custom")
+    meld = []
+    os.makedirs(doelmap, exist_ok=True)
+    for sub in VERSIE_MAPPEN:
+        shutil.rmtree(os.path.join(doelmap, sub), ignore_errors=True)   # oude versies niet mengen
+    uit = {"originelen": []}
 
-    # 1. originelen (staan ze al in doelmap/originelen, dan blijven ze waar ze zijn)
+    # 1. originelen: onbewerkt en op volle grootte bewaren
     d = os.path.join(doelmap, "originelen")
     os.makedirs(d, exist_ok=True)
-    for sub in ("transparant", "zonder_logo", "met_logo", "zonder_logo_bg", "met_logo_bg"):
-        shutil.rmtree(os.path.join(doelmap, sub), ignore_errors=True)   # oude versies niet mengen
-    uit["originelen"] = []
     for i, p in enumerate(fotos):
         if os.path.abspath(os.path.dirname(p)) == os.path.abspath(d):
             uit["originelen"].append(p)
@@ -147,72 +186,122 @@ def maak_versies(fotos, doelmap, opties, voortgang=None, stop=lambda: False):
         doel = os.path.join(d, f"foto_{i + 1:03d}" + os.path.splitext(p)[1].lower())
         shutil.copy2(p, doel)
         uit["originelen"].append(doel)
-    stap(0.05, "Originelen opgeslagen")
 
-    # 2. achtergrond verwijderen (alleen als nodig)
-    pngs = []
-    if nodig_png:
-        stap(0.1, "Achtergrond verwijderen (kan even duren)...")
-        tmp = tempfile.mkdtemp()
-        try:
-            pngs = verwijder_achtergrond(uit["originelen"], tmp)
+    wit, custom, transp = opties.get("wit"), opties.get("custom"), opties.get("transparant")
+    achtergrond = bool(wit or custom or transp)
+    verkleinen = opties.get("verkleinen", True)
+    kleur = opties.get("kleur_verbeteren", False)
+    if kleur and not heeft_kleurverbetering():
+        kleur = False
+        meld.append("Kleuren verbeteren overgeslagen: opencv ontbreekt (./install.sh --met-ai).")
+
+    # voortgangsbalk: elke fase krijgt een deel naar hoe lang hij ongeveer duurt
+    gewicht = {"voor": 3 if kleur else 1, "achter": 8 if achtergrond else 0, "versies": 1}
+    begin = {"voor": 0, "achter": gewicht["voor"], "versies": gewicht["voor"] + gewicht["achter"]}
+    totaal = sum(gewicht.values())
+
+    def fase(naam, klaar, tekst):
+        if voortgang:
+            voortgang((begin[naam] + gewicht[naam] * klaar / max(1, n)) / totaal, tekst)
+
+    werk = tempfile.mkdtemp(prefix=".bewerk_", dir=os.path.dirname(os.path.abspath(doelmap)))
+    try:
+        # 2. voorbereiden: draaien, verkleinen, kleuren
+        voorbereid = []
+        for i, p in enumerate(uit["originelen"]):
             if stop():
-                return uit
-            pngs = [_vierkant(_open(p).convert("RGBA")) for p in pngs]
-        finally:
-            shutil.rmtree(tmp, ignore_errors=True)
-        if opties.get("transparant"):
-            d = os.path.join(doelmap, "transparant")
-            os.makedirs(d, exist_ok=True)
-            uit["transparant"] = []
-            for i, im in enumerate(pngs):
-                doel = os.path.join(d, f"foto_{i + 1:03d}.png")
-                im.save(doel, "PNG")
-                uit["transparant"].append(doel)
-    stap(0.6, "Versies maken...")
+                return uit, meld
+            wat = "Verkleinen" if verkleinen else "Voorbereiden"
+            if kleur:
+                wat += " en kleuren verbeteren"
+            fase("voor", i, f"{wat}: foto {i + 1} van {n}")
+            doel = os.path.join(werk, f"foto_{i + 1:03d}.jpg")
+            _bereid_voor(p, doel, verkleinen)
+            if kleur:
+                try:
+                    _verbeter_kleur(doel)
+                except Exception as e:
+                    meld.append(f"Foto {i + 1}: kleuren verbeteren mislukt ({e}).")
+            voorbereid.append(doel)
 
-    # 3. JPEG-versies
-    wm, lg = opties.get("watermerk"), opties.get("logo")
-    met_logo = bool(opties.get("met_logo") and ((wm and os.path.exists(wm)) or (lg and os.path.exists(lg))))
+        # 3. achtergrond verwijderen (transparent-background, apart proces)
+        pngs = {}
+        if achtergrond:
+            fase("achter", 0, "Achtergrond verwijderen met transparent-background (model laden)...")
+            pngs, m = verwijder_achtergrond(
+                voorbereid, os.path.join(werk, "png"),
+                voortgang=lambda k, t: fase("achter", k, f"Achtergrond verwijderen: foto {k} van {t}"),
+                stop=stop)
+            meld += m
+            if stop():
+                return uit, meld
 
-    def schrijf(naam, afbeeldingen):
-        d = os.path.join(doelmap, naam)
-        os.makedirs(d, exist_ok=True)
-        uit[naam] = []
-        for i, im in enumerate(afbeeldingen):
-            doel = os.path.join(d, f"foto_{i + 1:03d}.jpg")
-            im.save(doel, "JPEG", quality=95)
-            uit[naam].append(doel)
+        # 4. versies maken, één foto tegelijk
+        wm, lg = opties.get("watermerk"), opties.get("logo")
+        met_logo = bool(opties.get("met_logo") and ((wm and os.path.exists(wm)) or (lg and os.path.exists(lg))))
+        if opties.get("met_logo") and not met_logo:
+            meld.append("Geen logo of watermerk gekozen: versies met logo overgeslagen.")
+        k = (opties.get("bg_kleur") or "#ffffff").lstrip("#")
+        try:
+            bg_rgb = tuple(int(k[j:j + 2], 16) for j in (0, 2, 4))
+        except ValueError:
+            bg_rgb = (255, 255, 255)
+        bg_afb = opties.get("bg_afbeelding") if opties.get("bg_afbeelding") and os.path.exists(opties["bg_afbeelding"]) else None
 
-    basis_sets = []   # (map zonder logo, map met logo, [RGB-afbeeldingen])
-    if opties.get("wit") and pngs:
-        basis_sets.append(("zonder_logo", "met_logo", [_naar_rgb(im) for im in pngs]))
-    elif not opties.get("wit"):
-        # 'laten zoals het is': de originelen als JPEG, zodat de Uploader ze vindt
-        basis_sets.append(("zonder_logo", "met_logo", [_naar_rgb(_open(p)) for p in uit["originelen"]]))
-    if opties.get("custom") and pngs:
-        sets = []
-        for im in pngs:
-            if opties.get("bg_afbeelding") and os.path.exists(opties["bg_afbeelding"]):
-                bg = _achtergrond_afbeelding(opties["bg_afbeelding"], im.size)
-                bg.paste(im, (0, 0), im)
-                sets.append(bg)
-            else:
-                k = (opties.get("bg_kleur") or "#ffffff").lstrip("#")
-                rgb = tuple(int(k[j:j + 2], 16) for j in (0, 2, 4))
-                sets.append(_naar_rgb(im, rgb))
-        basis_sets.append(("zonder_logo_bg", "met_logo_bg", sets))
+        def bewaar(sub, im, naam, **kw):
+            map_ = os.path.join(doelmap, sub)
+            os.makedirs(map_, exist_ok=True)
+            pad = os.path.join(map_, naam)
+            im.save(pad, **kw)
+            uit.setdefault(sub, []).append(pad)
 
-    totaal = max(1, len(basis_sets))
-    for k, (zonder, met, ims) in enumerate(basis_sets):
-        if stop():
-            return uit
-        schrijf(zonder, ims)
-        if met_logo:
-            schrijf(met, [_logo_en_watermerk(im, wm, lg) for im in ims])
-        stap(0.6 + 0.4 * (k + 1) / totaal, "Versies maken...")
-    stap(1.0, "Klaar")
-    return uit
+        for i, prep in enumerate(voorbereid):
+            if stop():
+                return uit, meld
+            fase("versies", i, f"Versies maken: foto {i + 1} van {n}")
+            naam = f"foto_{i + 1:03d}"
+            png = pngs.get(prep)
+            with Image.open(prep) as pim:
+                icc = pim.info.get("icc_profile")
+                maat = pim.size
+                # foto met eigen achtergrond: als 'wit' niet gekozen is (of als het verwijderen mislukte)
+                basis = pim.convert("RGB") if not (wit and png) else None
+            jpg = {"format": "JPEG", "quality": 95, **({"icc_profile": icc} if icc else {})}
+            if basis is not None:
+                bewaar("zonder_logo", basis, naam + ".jpg", **jpg)
+                if met_logo:
+                    bewaar("met_logo", _logo_en_watermerk(basis, wm, lg), naam + ".jpg", **jpg)
+                del basis
+            if png:
+                with Image.open(png) as tim:
+                    rgba = tim.convert("RGBA")
+                if rgba.size != maat:
+                    rgba = rgba.resize(maat, Image.LANCZOS)
+                rgba = _vierkant(rgba)
+                if transp:
+                    bewaar("transparant", rgba, naam + ".png", format="PNG")
+                if wit:
+                    w = _naar_rgb(rgba)
+                    bewaar("zonder_logo", w, naam + ".jpg", **jpg)
+                    if met_logo:
+                        bewaar("met_logo", _logo_en_watermerk(w, wm, lg), naam + ".jpg", **jpg)
+                    del w
+                if custom:
+                    if bg_afb:
+                        c = _achtergrond_afbeelding(bg_afb, rgba.size)
+                        c.paste(rgba, (0, 0), rgba)
+                    else:
+                        c = _naar_rgb(rgba, bg_rgb)
+                    bewaar("zonder_logo_bg", c, naam + ".jpg", **jpg)
+                    if met_logo:
+                        bewaar("met_logo_bg", _logo_en_watermerk(c, wm, lg), naam + ".jpg", **jpg)
+                    del c
+                del rgba
+        if voortgang:
+            voortgang(1.0, "Klaar")
+        return uit, meld
+    finally:
+        shutil.rmtree(werk, ignore_errors=True)
 
 
 def lijst_fotos(map_):
