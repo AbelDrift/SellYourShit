@@ -62,12 +62,14 @@ naar die map; de fotomanager-instellingen heten nu `fotomanager_config.json`
   `verzendtabel.json` in de datamap en zijn aanpasbaar.
 - Het veld **Marktplaats-categorie** bepaalt welke suggestie de Automater kiest (anders de eerste). Je krijgt
   een waarschuwing als de gekozen categorie alleen Brenger toont terwijl het product in een pakket past.
-- In **🤖 Product Uploader** kies je welke vervoerders je wilt gebruiken: **Budbee, DHL, PostNL en Brenger**.
-  Een uitgevinkte vervoerder telt niet mee; het advies kiest dan de eerstvolgende beste optie (goedkoopste
-  passende pakket bij de overige vervoerders, anders Brenger, anders alleen ophalen).
-- Bij het uploaden staat het **verzendadvies** van elk product in de log en in het voortgangsvenster
-  (bijv. "Klein pakket via DHL, PostNL"), zodat je het kunt controleren of zelf kunt kiezen als het
-  automatisch kiezen niet lukt. Het staat ook in het detailvenster (dubbelklik in Product Management).
+- Bij **📝 Nieuw Product** kies je onder het verzendadvies je **voorkeur vervoerders** (Budbee, DHL, PostNL,
+  Brenger). Dat wordt je standaard, ook voor het uploaden. Het advies gebruikt alleen je voorkeur
+  (goedkoopste passende pakket, anders Brenger, anders alleen ophalen) en noemt tussen haakjes wat bij de
+  andere vervoerders ook kan, met prijs. Bijvoorbeeld: *Klein pakket via DHL (afhaalpunt €3,99, thuis €6,29)
+  (ook mogelijk, niet in je voorkeur: Budbee gemiddeld pakket afhaalpunt €3,49, PostNL afhaalpunt €5,39)*.
+- Het advies wordt bij het registreren **bij het product bewaard**. Bij het uploaden staat het in de log en
+  in het voortgangsvenster, bij de start van het product én nog eens bij "controleer de advertentie".
+  Is je voorkeur sindsdien veranderd, dan zie je ook het advies van nu. Het staat ook in het productvenster.
 - De **Uploader** vinkt de geadviseerde vervoerders aan, de andere uit, en kiest de pakketgrootte (uit te
   zetten in zijn instellingen). Lukt een vinkje niet via het vakje zelf, dan probeert hij het via het label.
   Controleer de advertentie altijd voor je op "Plaats advertentie" klikt.
@@ -130,9 +132,13 @@ Voor transparant/wit/eigen achtergrond is achtergrondverwijdering nodig: install
 
 ## Product Management
 
-- **Dubbelklik** op een product opent een detailvenster: de advertentietekst zoals hij geplaatst wordt,
+- **Dubbelklik** op een product opent het productvenster: de advertentietekst zoals hij geplaatst wordt,
   alle gegevens, links naar platforms, online/verkocht-status en alle fotoversies. Foto's sleep je zo
   naar een uploadveld in je browser; titel, nummer, prijs en omschrijving kopieer je met één klik.
+- Met **✏️ Bewerken** pas je het product in datzelfde venster aan (ook via Acties → Bewerken): de
+  omschrijving in Advertentie, de productgegevens in Gegevens, de links in Links en alle overige velden
+  (online, verkoop, klant, reservering, registratie, eigen voorwaarden) in **Overig**. Opslaan met de knop
+  of Ctrl+S; ongedaan maken werkt zoals altijd. Locatie wijzigen (nieuw artikelnummer) kan er ook.
 - **🚀 Upload naar Marktplaats** (onderaan, of rechtermuisknop): upload de geselecteerde producten of
   alle offline producten. De voortgang verschijnt in een klein los venster met de knoppen
   Ingelogd / Volgende / Overslaan / Stop en een uitklapbare log; het hoofdvenster blijft vrij.

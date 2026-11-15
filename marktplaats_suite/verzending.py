@@ -142,6 +142,15 @@ def advies(lengte, breedte, hoogte, gewicht, instellingen=None):
         return None
     aan = vervoerders_aan(ins)
     uit = [v for v in VERVOERDERS if not aan.get(v, True)]
+    # wat ook zou kunnen bij vervoerders die niet in je voorkeur staan (per vervoerder de goedkoopste)
+    alles_aan = dict(ins, vervoerders_aan={v: True for v in VERVOERDERS})
+    alle = verzendadvies(lengte, breedte, hoogte, gewicht, alles_aan) or []
+    alternatieven, gezien = [], set()
+    for o in alle:
+        if o["vervoerder"] in uit and o["vervoerder"] not in gezien:
+            gezien.add(o["vervoerder"])
+            alternatieven.append(o)
+    basis = {"uit": uit, "alternatieven": alternatieven}
     if opties:
         g = opties[0]
         klasse = g["klasse"]
@@ -149,18 +158,29 @@ def advies(lengte, breedte, hoogte, gewicht, instellingen=None):
         for o in opties:
             if o["klasse"] == klasse and o["vervoerder"] not in vervoerders:
                 vervoerders.append(o["vervoerder"])
-        tekst = (f"{klasse} via {', '.join(vervoerders)} "
-                 f"(goedkoopst: {g['vervoerder']} {g['variant']} {_euro(g['prijs'])})")
-        return {"soort": "pakket", "klasse": klasse, "vervoerders": vervoerders, "goedkoopst": g,
-                "uit": uit, "tekst": tekst}
-    alles_aan = dict(ins, vervoerders_aan={v: True for v in VERVOERDERS})
-    zou_passen = bool(verzendadvies(lengte, breedte, hoogte, gewicht, alles_aan))
-    waarom = "past niet in een pakket" + (" van de gekozen vervoerders" if zou_passen else "")
+        if len(vervoerders) == 1:
+            prijzen = ", ".join(f"{o['variant']} {_euro(o['prijs'])}" for o in opties if o["klasse"] == klasse)
+            tekst = f"{klasse} via {vervoerders[0]} ({prijzen})"
+        else:
+            tekst = f"{klasse} via {', '.join(vervoerders)} (goedkoopst: {g['vervoerder']} {g['variant']} {_euro(g['prijs'])})"
+        return dict(basis, soort="pakket", klasse=klasse, vervoerders=vervoerders, goedkoopst=g, tekst=tekst,
+                    alternatieven_tekst=alternatieven_tekst(alternatieven, klasse))
+    waarom = "past niet in een pakket" + (" van je voorkeursvervoerders" if alle else "")
     if aan.get("Brenger", True):
-        return {"soort": "brenger", "klasse": None, "vervoerders": ["Brenger"], "goedkoopst": None,
-                "uit": uit, "tekst": f"Brenger ({waarom})"}
-    return {"soort": "ophalen", "klasse": None, "vervoerders": [], "goedkoopst": None, "uit": uit,
-            "tekst": f"alleen ophalen ({waarom} en Brenger staat uit)"}
+        return dict(basis, soort="brenger", klasse=None, vervoerders=["Brenger"], goedkoopst=None,
+                    tekst=f"Brenger ({waarom})", alternatieven_tekst=alternatieven_tekst(alternatieven))
+    return dict(basis, soort="ophalen", klasse=None, vervoerders=[], goedkoopst=None,
+                tekst=f"alleen ophalen ({waarom} en Brenger staat uit)",
+                alternatieven_tekst=alternatieven_tekst(alternatieven))
+
+
+def alternatieven_tekst(alternatieven, klasse=None):
+    """'Budbee €3,49, PostNL gemiddeld pakket €5,69' (pakketklasse alleen als die afwijkt)."""
+    delen = []
+    for o in alternatieven:
+        k = "" if o["klasse"] == klasse else f" {o['klasse'].lower()}"
+        delen.append(f"{o['vervoerder']}{k} {o['variant']} {_euro(o['prijs'])}")
+    return ", ".join(delen)
 
 
 def advies_tekst(lengte, breedte, hoogte, gewicht, mp_categorie="", instellingen=None):
@@ -171,14 +191,24 @@ def advies_tekst(lengte, breedte, hoogte, gewicht, mp_categorie="", instellingen
         return ""
     icoon = "📦" if a["soort"] == "pakket" else "🚚"
     regels = [f"{icoon} Verzendadvies: {a['tekst']}"]
-    if a["uit"]:
-        regels.append(f"   Staat uit: {', '.join(a['uit'])} (aanpassen in 🤖 Product Uploader)")
+    if a["alternatieven"]:
+        regels.append(f"   (ook mogelijk, niet in je voorkeur: {a['alternatieven_tekst']})")
     cat = (mp_categorie or "").lower()
     if a["soort"] == "pakket" and cat and any(k in cat for k in ins["brenger_categorieen"]):
         alt = " of ".join(ins["alternatieve_categorieen"])
         regels.append(f"⚠️ In de categorie '{mp_categorie}' toont Marktplaats alleen Brenger. "
                       f"Dit product past in een pakket: overweeg {alt}.")
     return "\n".join(regels)
+
+
+def advies_regel(a):
+    """Eén regel met het advies en de alternatieven (voor bij het product en in de log)."""
+    if not a:
+        return ""
+    tekst = a["tekst"]
+    if a.get("alternatieven"):
+        tekst += f"; ook mogelijk, niet in je voorkeur: {a['alternatieven_tekst']}"
+    return tekst
 
 
 def kies_automatisch(lengte, breedte, hoogte, gewicht, instellingen=None):

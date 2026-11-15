@@ -176,6 +176,7 @@ KOLOM_LABELS = {
     "reserveprijs": "Reserveprijs (€)",
     "reserveerdatum": "Reserveerdatum",
     "reservering_klant_naam": "Gereserveerd voor",
+    "verzendadvies": "Verzendadvies (bij registratie)",
 }
 
 # Standaard zichtbare kolommen per filter
@@ -1862,6 +1863,26 @@ class RegistreerTab(Gtk.Box):
         self.verzendadvies_label.set_no_show_all(True)
         form.pack_start(self.verzendadvies_label, False, False, 0)
 
+        # voorkeur vervoerders (wordt je standaard, ook voor de Product Uploader)
+        from marktplaats_suite.verzending import VERVOERDERS, vervoerders_aan
+        vv_rij = Gtk.Box(spacing=12)
+        vv_lbl = Gtk.Label()
+        vv_lbl.set_markup("<small>Voorkeur vervoerders:</small>")
+        vv_rij.pack_start(vv_lbl, False, False, 0)
+        aan = vervoerders_aan()
+        self.vervoerder_checks = {}
+        for naam in VERVOERDERS:
+            c = Gtk.CheckButton(label=naam)
+            c.set_active(bool(aan.get(naam, True)))
+            c.connect("toggled", self._on_vervoerders_gewijzigd)
+            self.vervoerder_checks[naam] = c
+            vv_rij.pack_start(c, False, False, 0)
+        vv_uitleg = Gtk.Label()
+        vv_uitleg.set_markup("<small><i>wordt je standaard (ook bij het uploaden); "
+                             "andere vervoerders zie je tussen haakjes met hun prijs</i></small>")
+        vv_rij.pack_start(vv_uitleg, False, False, 0)
+        form.pack_start(vv_rij, False, False, 0)
+
         # --- Rij: Merk, Materiaal, Stijl, Kleur | Opslaglocatie ---
         onder_row = Gtk.Box(spacing=18, homogeneous=True)
         kenm_col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
@@ -2215,6 +2236,23 @@ class RegistreerTab(Gtk.Box):
         entry = Gtk.Entry()
         entry.set_placeholder_text(placeholder)
         return entry
+
+    def _verzendadvies_regel(self):
+        """Het advies zoals het nu bij het formulier staat, om bij het product te bewaren."""
+        from marktplaats_suite.verzending import advies, advies_regel
+        try:
+            return advies_regel(advies(self.lengte_entry.get_text(), self.breedte_entry.get_text(),
+                                       self.hoogte_entry.get_text(), self.gewicht_entry.get_text()))
+        except Exception:
+            return ""
+
+    def _on_vervoerders_gewijzigd(self, *_):
+        from marktplaats_suite.verzending import bewaar_vervoerders
+        try:
+            bewaar_vervoerders({n: c.get_active() for n, c in self.vervoerder_checks.items()})
+        except Exception as e:
+            print(f"Vervoerders opslaan mislukt: {e}")
+        self._update_verzendadvies()
 
     def _update_verzendadvies(self, *_):
         from marktplaats_suite.verzending import advies_tekst
@@ -3001,6 +3039,7 @@ class RegistreerTab(Gtk.Box):
             "stijl": self.stijl_entry.get_text().strip(),
             "kleur": self.kleur_entry.get_text().strip(),
             "extra_info_koper": self.extra_info_entry.get_text().strip(),
+            "verzendadvies": self._verzendadvies_regel(),
             "kanalen": ",".join(k for k, c in (("marktplaats", self.kanaal_marktplaats_check),
                                                ("whoppah", self.kanaal_whoppah_check),
                                                ("vinted", self.kanaal_vinted_check)) if c.get_active()),
@@ -3758,9 +3797,9 @@ class OverzichtTab(Gtk.Box):
                 else:
                     self._toon_foutdialoog(f"Map niet gevonden voor {artikelnummer}\nGezocht op: {pad}")
 
-    def _on_locatie_wijzigen(self, widget):
-        """Wijzig de locatie (eerste 3 tekens) van een product."""
-        artikelnummers = self._geselecteerde_artikelnummers()
+    def _on_locatie_wijzigen(self, widget, artikelnummer=None):
+        """Wijzig de locatie (eerste 3 tekens) van een product. Geeft het nieuwe artikelnummer terug."""
+        artikelnummers = [artikelnummer] if artikelnummer else self._geselecteerde_artikelnummers()
         if not artikelnummers:
             self._toon_foutdialoog("Selecteer eerst een product.")
             return
@@ -3770,7 +3809,6 @@ class OverzichtTab(Gtk.Box):
             return
 
         artikelnummer = artikelnummers[0]
-
         if len(artikelnummer) < 8:
             self._toon_foutdialoog(f"Ongeldig artikelnummer formaat: {artikelnummer}")
             return
@@ -3815,8 +3853,10 @@ class OverzichtTab(Gtk.Box):
                 f"Map: {nieuwe_map}"
             )
             self.herlaad()
+            return nieuw_artikelnummer
         except Exception as e:
             self._toon_foutdialoog(f"Fout bij wijzigen: {e}")
+        return None
 
     def _on_filter_changed(self, button, filter_type):
         if button.get_active():
@@ -3981,20 +4021,51 @@ class OverzichtTab(Gtk.Box):
         return artikelnummers
 
     def _on_row_dubbelklik(self, tree_view, path, column):
-        """Dubbelklik: detailvenster met de advertentie, alle fotoversies en de status."""
-        artikelnummer = self.store[path][0]
+        """Dubbelklik: productvenster met de advertentie, alle gegevens, status en fotoversies."""
+        self._open_detail(self.store[path][0])
+
+    def _open_detail(self, artikelnummer, bewerken=False):
         storage = get_backend(self.config)
         product = next((p for p in storage.load_products() if p.get("artikelnummer") == artikelnummer), None)
         if not product:
             self._toon_foutdialoog("Product niet gevonden.")
-            return
+            return None
         productmap = vind_product_map(artikelnummer, self.config)
         if not os.path.isdir(productmap):
             productmap = None
-        omschrijving = build_txt_beschrijving(product, self.config)   # precies wat er geplaatst wordt
         from marktplaats_suite.productdetail import ProductDetailVenster
-        ProductDetailVenster(self.main_window, product, productmap, omschrijving,
-                             op_bewerken=lambda: self._on_bewerken(None)).show_all()
+        venster = ProductDetailVenster(
+            self.main_window, product, productmap, build_txt_beschrijving(product, self.config),
+            op_opslaan=self._detail_opslaan, op_locatie=self._detail_locatie,
+            maak_tekst=lambda p: build_txt_beschrijving(p, self.config),
+            keuzes={"categorie": self.config.get("categorieen", DEFAULT_CATEGORIEEN),
+                    "tijdsperiode": self.config.get("tijdsperiodes", DEFAULT_TIJDSPERIODES),
+                    "conditie": CONDITIES},
+            bewerken=bewerken)
+        venster.present()
+        return venster
+
+    def _detail_opslaan(self, oud, nieuw):
+        """Opslaan vanuit het productvenster (met ongedaan maken en bijgewerkte omschrijving.txt)."""
+        artikelnummer = oud.get("artikelnummer")
+        if any((oud.get(k) or "") != (nieuw.get(k) or "") for k in ("lengte", "breedte", "hoogte", "gewicht")):
+            from marktplaats_suite.verzending import advies, advies_regel
+            nieuw["verzendadvies"] = advies_regel(advies(nieuw.get("lengte"), nieuw.get("breedte"),
+                                                         nieuw.get("hoogte"), nieuw.get("gewicht")))
+        get_backend(self.config).update_product(artikelnummer, nieuw)
+        self._push_undo("bewerken", {"artikelnummer": artikelnummer, "oud": oud, "nieuw": nieuw})
+        map_ = vind_product_map(artikelnummer, self.config)
+        if os.path.isdir(map_):
+            with open(os.path.join(map_, "omschrijving.txt"), "w", encoding="utf-8") as f:
+                f.write(build_txt_beschrijving(nieuw, self.config))
+        self.herlaad()
+
+    def _detail_locatie(self, venster, artikelnummer):
+        """'Locatie wijzigen' vanuit het productvenster: daarna het venster met het nieuwe nummer openen."""
+        nieuw_nummer = self._on_locatie_wijzigen(None, artikelnummer=artikelnummer)
+        if nieuw_nummer:
+            venster.destroy()
+            self._open_detail(nieuw_nummer, bewerken=True)
 
     def _on_upload(self, alles=False):
         """Plaatst producten op Marktplaats via de Uploader, met een klein los statusvenster."""
@@ -4066,35 +4137,12 @@ class OverzichtTab(Gtk.Box):
         self.redo_stack.clear()
 
     def _on_bewerken(self, widget):
+        """Bewerken gebeurt in het productvenster."""
         artikelnummer = self._get_first_selected()
         if not artikelnummer:
             self._toon_foutdialoog("Selecteer eerst een product.")
             return
-
-        storage = get_backend(self.config)
-        producten = storage.load_products()
-        product = next((p for p in producten if p.get("artikelnummer") == artikelnummer), None)
-        if not product:
-            self._toon_foutdialoog("Product niet gevonden.")
-            return
-
-        oude_product = dict(product)
-
-        dialog = BewerkDialog(self.main_window, product, self.config)
-        response = dialog.run()
-        if response == Gtk.ResponseType.OK:
-            bijgewerkt = dialog.get_product()
-            try:
-                storage.update_product(artikelnummer, bijgewerkt)
-                map_ = vind_product_map(artikelnummer, self.config)
-                if os.path.isdir(map_):   # omschrijving.txt in de productmap bijwerken
-                    with open(os.path.join(map_, "omschrijving.txt"), "w", encoding="utf-8") as f:
-                        f.write(build_txt_beschrijving(bijgewerkt, self.config))
-                self._push_undo("bewerken", {"artikelnummer": artikelnummer, "oud": oude_product, "nieuw": bijgewerkt})
-                self.herlaad()
-            except Exception as e:
-                self._toon_foutdialoog(f"Kon niet opslaan: {e}")
-        dialog.destroy()
+        self._open_detail(artikelnummer, bewerken=True)
 
     def _on_verwijderen(self, widget):
         artikelnummers = self._geselecteerde_artikelnummers()
@@ -5292,7 +5340,6 @@ class MainWindow(Gtk.Window):
             from marktplaats_suite.automater import App as AutomaterApp
             self.automater_app = AutomaterApp()
             self.automater_app.na_upload = self.overzicht_tab.herlaad
-            self.automater_app.op_vervoerders = self.registreer_tab._update_verzendadvies
             self.notebook.append_page(self.automater_app.window, Gtk.Label(label="🤖 Product Uploader"))
         except (Exception, SystemExit) as e:
             self._voeg_foutmelding_tab_toe("🤖 Product Uploader", e)
@@ -5797,68 +5844,6 @@ class ReserveerDialog(Gtk.Dialog):
             "reserveerdatum": self.vandaag,
             "reservering_klant_naam": self.klant_naam_entry.get_text().strip(),
         }
-
-
-class BewerkDialog(Gtk.Dialog):
-    def __init__(self, parent, product, config):
-        super().__init__(title=f"Bewerken - {product.get('artikelnummer', '')}", transient_for=parent, flags=0)
-        self.product = dict(product)
-        self.config = config
-        self.set_default_size(500, 600)
-        self.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL, Gtk.STOCK_SAVE, Gtk.ResponseType.OK)
-
-        box = self.get_content_area()
-        box.set_spacing(8)
-        box.set_border_width(10)
-
-        scrolled = Gtk.ScrolledWindow()
-        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        box.pack_start(scrolled, True, True, 0)
-
-        inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        inner.set_border_width(5)
-        scrolled.add(inner)
-
-        self.entries = {}
-        inner.pack_start(Gtk.Label(label=f"Artikelnummer: {self.product.get('artikelnummer', '')}"), False, False, 0)
-
-        bewerkbare_velden = [c for c in COLUMNS if c not in ("artikelnummer", "folder_locatie")]
-        for veld in bewerkbare_velden:
-            label = Gtk.Label(label=KOLOM_LABELS.get(veld, veld))
-            label.set_xalign(0)
-            inner.pack_start(label, False, False, 0)
-
-            if veld in ("omschrijving", "algemene_voorwaarden"):
-                view = Gtk.TextView()
-                view.get_buffer().set_text(self.product.get(veld, ""))
-                view_scroll = Gtk.ScrolledWindow()
-                view_scroll.set_size_request(-1, 80)
-                view_scroll.add(view)
-                inner.pack_start(view_scroll, False, False, 0)
-                self.entries[veld] = view
-            elif veld.startswith("url_"):
-                entry = Gtk.Entry()
-                entry.set_text(self.product.get(veld, ""))
-                entry.set_placeholder_text(f"https://www.marktplaats.nl/v/...")
-                inner.pack_start(entry, False, False, 0)
-                self.entries[veld] = entry
-            else:
-                entry = Gtk.Entry()
-                entry.set_text(self.product.get(veld, ""))
-                inner.pack_start(entry, False, False, 0)
-                self.entries[veld] = entry
-
-        self.show_all()
-
-    def get_product(self):
-        result = dict(self.product)
-        for veld, widget in self.entries.items():
-            if isinstance(widget, Gtk.TextView):
-                buf = widget.get_buffer()
-                result[veld] = buf.get_text(buf.get_start_iter(), buf.get_end_iter(), True)
-            else:
-                result[veld] = widget.get_text()
-        return result
 
 
 # ============================================

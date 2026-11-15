@@ -532,14 +532,11 @@ class MarktplaatsAuto:
             self.logger.info(f"\n{'='*50}")
             self.logger.info(f"📦 Product {processed}/{total}: {product['artikelnummer']}")
             self.logger.info(f"📝 Titel: {product['titel']}")
-            try:
-                adv = self._verzendadvies(product)
-            except Exception:
-                adv = None
-            adv_tekst = adv["tekst"] if adv else "geen advies (afmetingen of gewicht ontbreken)"
-            self.logger.info(f"📦 Verzendadvies: {adv_tekst}")
+            product["verzend_tekst"] = self._verzend_tekst(product)
+            for regel in product["verzend_tekst"].split("\n"):
+                self.logger.info(f"📦 {regel}")
             if getattr(self, "on_verzendadvies", None):
-                self.on_verzendadvies(adv_tekst)
+                self.on_verzendadvies(product["verzend_tekst"])
             self.logger.info(f"{'='*50}")
 
             if not self.process_one_product(product):
@@ -626,6 +623,21 @@ class MarktplaatsAuto:
         def veld(naam):
             return row[COL[naam]] if len(row) > COL[naam] else ""
         return advies(veld("lengte"), veld("breedte"), veld("hoogte"), veld("gewicht"))
+
+    def _verzend_tekst(self, product):
+        """Het advies van bij de registratie, plus het advies van nu als dat anders is."""
+        from marktplaats_suite.verzending import advies_regel
+        row = product["row"]
+        bewaard = (row[COL["verzendadvies"]] if len(row) > COL["verzendadvies"] else "") or ""
+        try:
+            nu = advies_regel(self._verzendadvies(product))
+        except Exception:
+            nu = ""
+        if bewaard and (not nu or nu == bewaard):
+            return f"Verzendadvies (bij registratie): {bewaard}"
+        if bewaard:
+            return f"Verzendadvies (bij registratie): {bewaard}\nVerzendadvies nu (met je huidige voorkeur): {nu}"
+        return f"Verzendadvies: {nu}" if nu else "Verzendadvies: geen (afmetingen of gewicht ontbreken)"
 
     def _kies_pakketgrootte(self, klasse):
         """Zoekt het keuzerondje van de pakketgrootte op een paar manieren (tekst kan afwijken)."""
@@ -787,6 +799,9 @@ class MarktplaatsAuto:
             self.logger.info("📝 Maak de advertentie handmatig af:")
             self.logger.info("   1. Controleer de beschrijving")
             self.logger.info("   2. Controleer verzending, prijs en eventuele extra velden")
+            for regel in product.get("verzend_tekst", "").split("\n"):
+                if regel:
+                    self.logger.info(f"      📦 {regel}")
             self.logger.info("   3. Klik op 'Plaats advertentie'")
             self.logger.info("")
             self.logger.info("⏸️ Klik op 'Volgende' als de advertentie geplaatst is, of 'Overslaan' om dit product bewust over te slaan")
@@ -1021,20 +1036,10 @@ class App:
             label="Verzending automatisch instellen (vervoerders en pakketgrootte op basis van afmetingen en gewicht)")
         grid.attach(self.auto_verzending_check, 0, 5, 4, 1)
 
-        grid.attach(lbl("Vervoerders:"), 0, 6, 1, 1)
-        vv_box = Gtk.Box(spacing=14)
-        self.vervoerder_checks = {}
-        from marktplaats_suite.verzending import VERVOERDERS
-        for naam in VERVOERDERS:
-            c = Gtk.CheckButton(label=naam)
-            c.connect("toggled", self._vervoerders_gewijzigd)
-            self.vervoerder_checks[naam] = c
-            vv_box.pack_start(c, False, False, 0)
-        vv_uitleg = Gtk.Label()
-        vv_uitleg.set_markup("<small><i>uitgevinkt = niet gebruiken; het advies kiest dan de eerstvolgende beste optie</i></small>")
-        vv_box.pack_start(vv_uitleg, False, False, 6)
-        grid.attach(vv_box, 1, 6, 3, 1)
-        self.op_vervoerders = None   # bijv. het verzendadvies in Nieuw Product verversen
+        vv_hint = Gtk.Label(xalign=0)
+        vv_hint.set_markup("<small><i>Welke vervoerders je wilt gebruiken (Budbee, DHL, PostNL, Brenger) kies je bij "
+                           "📝 Nieuw Product, onder het verzendadvies.</i></small>")
+        grid.attach(vv_hint, 1, 6, 3, 1)
 
         save_btn = Gtk.Button(label="💾 Opslaan")
         save_btn.set_halign(Gtk.Align.END)
@@ -1096,30 +1101,6 @@ class App:
         self.max_title_entry.set_text(str(prefs.get('max_title_length', 60)))
         self.wait_products_entry.set_text(str(prefs.get('wait_between_products', 3)))
         self.auto_verzending_check.set_active(bool(prefs.get('auto_verzending', True)))
-        from marktplaats_suite.verzending import vervoerders_aan
-        aan = vervoerders_aan()
-        self._vervoerders_laden = True
-        for naam, c in self.vervoerder_checks.items():
-            c.set_active(bool(aan.get(naam, True)))
-        self._vervoerders_laden = False
-
-    def _vervoerders_gewijzigd(self, *_):
-        if getattr(self, "_vervoerders_laden", False):
-            return
-        from marktplaats_suite.verzending import bewaar_vervoerders
-        try:
-            bewaar_vervoerders({n: c.get_active() for n, c in self.vervoerder_checks.items()})
-        except Exception as e:
-            self.logger.warning(f"Vervoerders opslaan mislukt: {e}")
-            return
-        uit = [n for n, c in self.vervoerder_checks.items() if not c.get_active()]
-        self.status_label.set_markup("<span foreground='green'>✅ Vervoerders opgeslagen"
-                                     + (f" ({', '.join(uit)} uit)" if uit else "") + "</span>")
-        if self.op_vervoerders:
-            try:
-                self.op_vervoerders()
-            except Exception:
-                pass
 
     def _save_config(self, widget, stil=False):
         self.config.set('browser', self.browser_combo.get_active_id() or 'auto')
@@ -1445,7 +1426,8 @@ class UploadVenster(Gtk.Window):
         self.status.set_markup(f"<b>{GLib.markup_escape_text(msg)}</b>")
 
     def zet_verzendadvies(self, tekst):
-        self.verzend.set_markup(f"📦 <b>Verzending:</b> {GLib.markup_escape_text(tekst)}")
+        regels = [GLib.markup_escape_text(r) for r in tekst.split("\n") if r]
+        self.verzend.set_markup("\n".join("📦 " + r for r in regels))
         self.verzend.show()
 
     def zet_knoppen(self, ingelogd=None, volgende=None):

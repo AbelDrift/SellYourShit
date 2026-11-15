@@ -77,6 +77,7 @@ COLUMNS = [
     "online_whoppah",
     "vinted_categorie",
     "online_vinted",
+    "verzendadvies",
 ]
 COL = {name: idx for idx, name in enumerate(COLUMNS)}
 
