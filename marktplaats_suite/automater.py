@@ -116,10 +116,17 @@ class Logger:
         if text_view:
             self.buffer = text_view.get_buffer()
 
+    luisteraars = []   # functies die elke logregel krijgen (bijv. het losse uploadvenster)
+
     def log(self, msg, level="INFO"):
         timestamp = time.strftime("%H:%M:%S")
         formatted = f"[{timestamp}] {level}: {msg}\n"
         print(formatted, end="")
+        for f in list(Logger.luisteraars):
+            try:
+                f(level, msg)
+            except Exception:
+                pass
         if self.buffer:
             # GTK is niet thread-safe. Het hele plaats-proces draait in een
             # achtergrondthread, dus rechtstreeks aan self.buffer/text_view
@@ -548,6 +555,9 @@ class MarktplaatsAuto:
                 verkocht = row[COL["verkocht"]].strip().lower() if len(row) > COL["verkocht"] and row[COL["verkocht"]] else ""
                 kanalen = [k.strip().lower() for k in (row[COL["kanalen"]] or "").split(",") if k.strip()] or ["marktplaats"]
 
+                filter_ = getattr(self, "filter_nummers", None)
+                if filter_ is not None and artikelnummer not in filter_:
+                    continue  # alleen de producten die in Product Management zijn gekozen
                 if verkocht == "ja":
                     continue  # verkochte producten niet opnieuw plaatsen
                 if online == "ja" or "marktplaats" not in kanalen:
@@ -908,6 +918,8 @@ class App:
             pass
         self.auto.on_vraag_logo = self._vraag_logo
         self.auto.on_controleer_categorie = self._controleer_categorie
+        self.upload_venster = None
+        self.na_upload = None       # bijv. Product Management verversen
         self.running = False
 
         self._setup_ui()
@@ -1162,7 +1174,7 @@ class App:
         self.wait_products_entry.set_text(str(prefs.get('wait_between_products', 3)))
         self.auto_verzending_check.set_active(bool(prefs.get('auto_verzending', True)))
 
-    def _save_config(self, widget):
+    def _save_config(self, widget, stil=False):
         self.config.set('browser', self.browser_combo.get_active_id() or 'auto')
         self.config.set('chrome.user_data_dir', self.profile_path_entry.get_text().strip())
         self.config.set('chrome.profile', self.profile_name_entry.get_text().strip())
@@ -1172,6 +1184,8 @@ class App:
         self.config.set('preferences.auto_verzending', self.auto_verzending_check.get_active())
 
         self.logger.success("✅ Configuratie opgeslagen!")
+        if stil:
+            return
 
         dialog = Gtk.MessageDialog(
             parent=self.window.top(),
@@ -1210,11 +1224,24 @@ class App:
             cb.set_text(bridge.json_voor_klembord(self.config), -1)
         d.destroy()
 
+    def start_upload(self, artikelnummers=None, parent=None):
+        """Start vanuit Product Management: alleen deze artikelnummers (None = alle offline), met een
+        klein los statusvenster in plaats van het Uploader-tabblad."""
+        if self.running:
+            if self.upload_venster:
+                self.upload_venster.present()
+            return
+        self.auto.filter_nummers = set(artikelnummers) if artikelnummers else None
+        self.upload_venster = UploadVenster(self, parent, len(artikelnummers) if artikelnummers else None)
+        self._start(None)
+
     def _start(self, widget):
         if self.running:
             return
+        if widget is not None:            # gestart vanuit het Uploader-tabblad: alles
+            self.auto.filter_nummers = None
 
-        self._save_config(widget)
+        self._save_config(widget, stil=True)
 
         self.running = True
         self.auto._logo_keuze = None
@@ -1255,17 +1282,23 @@ class App:
     def _logged_in(self, widget):
         self.auto.user_logged_in = True
         self.login_btn.set_sensitive(False)
+        if self.upload_venster:
+            self.upload_venster.zet_knoppen(ingelogd=False)
         self.logger.info("✅ Ingelogd bevestigd!")
 
     def _next(self, widget):
         self.next_btn.set_sensitive(False)
         self.skip_btn.set_sensitive(False)
+        if self.upload_venster:
+            self.upload_venster.zet_knoppen(volgende=False)
         self.logger.info("⏭️ Door naar volgende...")
         self.auto.go_to_next()
 
     def _skip(self, widget):
         self.next_btn.set_sensitive(False)
         self.skip_btn.set_sensitive(False)
+        if self.upload_venster:
+            self.upload_venster.zet_knoppen(volgende=False)
         self.logger.info("⏩ Overslaan...")
         threading.Thread(target=self.auto.skip_current, daemon=True).start()
 
@@ -1275,7 +1308,7 @@ class App:
         klaar = threading.Event()
 
         def toon():
-            d = Gtk.MessageDialog(parent=self.window.top(), flags=0, message_type=Gtk.MessageType.QUESTION,
+            d = Gtk.MessageDialog(parent=(self.upload_venster or self.window.top()), flags=0, message_type=Gtk.MessageType.QUESTION,
                                   buttons=Gtk.ButtonsType.NONE,
                                   text=f"Foto's voor {artikel}: met of zonder logo/watermerk?")
             d.format_secondary_text("Er zijn twee sets foto's gemaakt. Welke wil je op Marktplaats uploaden?")
@@ -1303,7 +1336,7 @@ class App:
         klaar = threading.Event()
 
         def toon():
-            d = Gtk.MessageDialog(parent=self.window.top(), flags=0, message_type=Gtk.MessageType.QUESTION,
+            d = Gtk.MessageDialog(parent=(self.upload_venster or self.window.top()), flags=0, message_type=Gtk.MessageType.QUESTION,
                                   buttons=Gtk.ButtonsType.NONE,
                                   text=f"Juiste categorie voor '{titel}'?")
             d.format_secondary_text("Controleer de gekozen categorie in de browser en wijzig die "
@@ -1335,13 +1368,19 @@ class App:
         self.skip_btn.set_sensitive(False)
         self.status_label.set_markup("<span foreground='red'>⏹️ Gestopt</span>")
         self.logger.info("⏹️ Gestopt door gebruiker")
+        if self.upload_venster:
+            self.upload_venster.klaar("⏹️ Gestopt")
 
     def _enable_next(self):
         self.next_btn.set_sensitive(True)
         self.skip_btn.set_sensitive(True)
+        if self.upload_venster:
+            self.upload_venster.zet_knoppen(volgende=True)
 
     def _update_status(self, msg):
         self.status_label.set_markup(f"<span foreground='blue'>{msg}</span>")
+        if self.upload_venster:
+            self.upload_venster.zet_status(msg)
 
     def _on_error(self, msg):
         self.logger.error(f"❌ {msg}")
@@ -1352,10 +1391,19 @@ class App:
         self.next_btn.set_sensitive(False)
         self.skip_btn.set_sensitive(False)
         self.running = False
+        if self.upload_venster:
+            self.upload_venster.klaar(f"❌ {msg}")
 
     def _on_finished(self):
         self.logger.success("🎉 Alle producten verwerkt!")
         self.status_label.set_markup("<span foreground='green'>✅ Klaar!</span>")
+        if self.upload_venster:
+            self.upload_venster.klaar("✅ Klaar!")
+        if self.na_upload:
+            try:
+                self.na_upload()
+            except Exception:
+                pass
         self.start_btn.set_sensitive(True)
         self.login_btn.set_sensitive(False)
         self.stop_btn.set_sensitive(False)
@@ -1389,6 +1437,109 @@ class App:
             self.auto.close()
         except Exception:
             pass
+
+
+class UploadVenster(Gtk.Window):
+    """Klein los venster met de voortgang van het plaatsen op Marktplaats."""
+
+    def __init__(self, app, parent, aantal):
+        super().__init__(title="Uploaden naar Marktplaats")
+        self.app = app
+        if parent is not None:
+            self.set_transient_for(parent)
+        self.set_default_size(460, -1)
+        self.set_keep_above(True)
+        self.set_position(Gtk.WindowPosition.CENTER_ON_PARENT if parent else Gtk.WindowPosition.CENTER)
+        self.connect("delete-event", self._sluiten_gevraagd)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        box.set_border_width(12)
+        self.add(box)
+        self.status = Gtk.Label()
+        self.status.set_xalign(0)
+        self.status.set_markup("<b>🔄 Browser starten...</b>")
+        box.pack_start(self.status, False, False, 0)
+        self.balk = Gtk.ProgressBar()
+        self.balk.set_show_text(True)
+        self.balk.set_text(f"0 van {aantal}" if aantal else "")
+        box.pack_start(self.balk, False, False, 0)
+        self.regel = Gtk.Label(label="Log in op Marktplaats in het browservenster en klik daarna op 'Ingelogd'.")
+        self.regel.set_xalign(0)
+        self.regel.set_line_wrap(True)
+        self.regel.set_max_width_chars(60)
+        box.pack_start(self.regel, False, False, 0)
+        knoppen = Gtk.Box(spacing=6, homogeneous=True)
+        self.k_login = Gtk.Button(label="🔑 Ingelogd")
+        self.k_login.connect("clicked", app._logged_in)
+        self.k_volgende = Gtk.Button(label="⏭️ Volgende")
+        self.k_volgende.connect("clicked", app._next)
+        self.k_over = Gtk.Button(label="⏩ Overslaan")
+        self.k_over.connect("clicked", app._skip)
+        self.k_stop = Gtk.Button(label="⏹️ Stop")
+        self.k_stop.connect("clicked", app._stop)
+        for k in (self.k_login, self.k_volgende, self.k_over, self.k_stop):
+            knoppen.pack_start(k, True, True, 0)
+        box.pack_start(knoppen, False, False, 0)
+        self.k_volgende.set_sensitive(False)
+        self.k_over.set_sensitive(False)
+        self.k_sluit = Gtk.Button(label="Sluiten")
+        self.k_sluit.connect("clicked", lambda *_: self._weg())
+        self.k_sluit.set_no_show_all(True)
+        box.pack_start(self.k_sluit, False, False, 0)
+        Logger.luisteraars.append(self._log)
+        self.show_all()
+
+    def _log(self, niveau, msg):
+        GLib.idle_add(self._log_ui, niveau, msg)
+
+    def _log_ui(self, niveau, msg):
+        tekst = msg.strip()
+        if not tekst or set(tekst) <= {"="}:
+            return False
+        m = re.search(r"Product (\d+)/(\d+)", tekst)
+        if m:
+            i, n = int(m.group(1)), int(m.group(2))
+            self.balk.set_fraction((i - 1) / max(1, n))
+            self.balk.set_text(f"{i} van {n}")
+            self.status.set_markup(f"<b>📦 Product {i} van {n}</b>")
+        if "producten geladen" in tekst:
+            self.status.set_markup(f"<b>{GLib.markup_escape_text(tekst)}</b>")
+        kleur = {"❌": "red", "⚠️": "#b9770e", "SUCCESS": "green"}.get(niveau)
+        t = GLib.markup_escape_text(tekst[:200])
+        self.regel.set_markup(f"<span foreground='{kleur}'>{t}</span>" if kleur else t)
+        return False
+
+    def zet_status(self, msg):
+        self.status.set_markup(f"<b>{GLib.markup_escape_text(msg)}</b>")
+
+    def zet_knoppen(self, ingelogd=None, volgende=None):
+        if ingelogd is not None:
+            self.k_login.set_sensitive(ingelogd)
+        if volgende is not None:
+            self.k_volgende.set_sensitive(volgende)
+            self.k_over.set_sensitive(volgende)
+            if volgende:
+                self.status.set_markup("<b>👀 Controleer de advertentie en klik op Volgende</b>")
+
+    def klaar(self, tekst):
+        self.status.set_markup(f"<b>{GLib.markup_escape_text(tekst)}</b>")
+        if tekst.startswith("✅"):
+            self.balk.set_fraction(1.0)
+        for k in (self.k_login, self.k_volgende, self.k_over, self.k_stop):
+            k.set_sensitive(False)
+        self.k_sluit.show()
+
+    def _sluiten_gevraagd(self, *_):
+        if self.app.running:
+            self.app._stop(None)
+        self._weg()
+        return True
+
+    def _weg(self):
+        if self._log in Logger.luisteraars:
+            Logger.luisteraars.remove(self._log)
+        if self.app.upload_venster is self:
+            self.app.upload_venster = None
+        self.destroy()
 
 
 # ============================================

@@ -480,7 +480,9 @@ class ImagePreviewWindow(Gtk.Window):
             else:
                 rotated_pil = pil_img
 
-            rotated_pil.save(self.current_image_path, 'PNG')
+            if self.current_image_path.lower().endswith((".jpg", ".jpeg")) and rotated_pil.mode != "RGB":
+                rotated_pil = rotated_pil.convert("RGB")
+            rotated_pil.save(self.current_image_path)
 
             self.original_pixbuf = GdkPixbuf.Pixbuf.new_from_file(self.current_image_path)
 

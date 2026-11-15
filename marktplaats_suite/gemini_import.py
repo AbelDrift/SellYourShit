@@ -143,4 +143,17 @@ def parse(tekst):
                     velden.setdefault("gewicht", _fmt(g))
         elif sleutel in ("tijdsperiode", "periode", "leeftijd", "jaar"):
             velden.setdefault("tijdsperiode", waarde)
+        elif sleutel == "categorie":
+            velden.setdefault("categorie", waarde)
+        elif sleutel in ("marktplaats-categorie", "marktplaatscategorie", "marktplaats categorie"):
+            velden.setdefault("marktplaats_categorie", waarde)
+    # Regels voor de app zelf (categorie) horen niet in de advertentietekst
+    schoon = []
+    for r in velden["omschrijving"].split("\n"):
+        m = _BULLET.match(r)
+        if m and m.group(1).partition(":")[0].strip().lower() in (
+                "categorie", "marktplaats-categorie", "marktplaatscategorie", "marktplaats categorie"):
+            continue
+        schoon.append(r)
+    velden["omschrijving"] = "\n".join(schoon).strip()
     return velden, meld

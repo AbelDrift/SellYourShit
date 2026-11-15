@@ -8,9 +8,11 @@ import gi
 gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, Gdk, GLib, GdkPixbuf
 import os
+from marktplaats_suite.voortgang import VoortgangsVenster
 from marktplaats_suite.common import open_extern, data_dir, asset, shared_get, shared_set, is_shared_key
 import sys
 import json
+import threading
 import hashlib
 import secrets
 import shutil
@@ -776,8 +778,18 @@ def build_txt_beschrijving(product, config=None):
         specs.append(line)
     if product.get("artikelnummer"):
         specs.append(f"Artikelnummer: {product.get('artikelnummer')}")
+    # regels die de AI al in het Details-blok heeft gezet niet dubbel tonen
+    al = (omschrijving or "").lower()
+    dubbel = {"Afmeting": ("* afmeting",), "Conditie/Staat": ("* staat", "* conditie"),
+              "Waarde": ("* waarde", "* geschatte waarde"), "Artikelnummer": ("* artikelnummer",)}
+    specs = [x for x in specs if not any(k in al for k in dubbel.get(x.split(":")[0].split(" (")[0], ()))]
     if specs:
-        parts.append("\n".join(specs))
+        regels = ["* " + x for x in specs]
+        bestaand = parts[-1] if parts else ""
+        if bestaand.rstrip().split("\n")[-1].lstrip().startswith(("* ", "- ")) and "details:" in bestaand.lower():
+            parts[-1] = bestaand.rstrip() + "\n" + "\n".join(regels)   # in hetzelfde Details-blok
+        else:
+            parts.append("Details:\n" + "\n".join(regels))
 
     # Algemene voorwaarden
     from marktplaats_suite.voorwaarden import voorwaarden_voor_advertentie
@@ -1798,7 +1810,11 @@ class RegistreerTab(Gtk.Box):
 
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        basis_box.pack_start(scrolled, True, True, 0)
+        hoofd_rij = Gtk.Box(spacing=12)
+        basis_box.pack_start(hoofd_rij, True, True, 0)
+        hoofd_rij.pack_start(scrolled, True, True, 0)
+        self._init_fotos()
+        hoofd_rij.pack_start(self._bouw_foto_paneel(), False, False, 0)
 
         form = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         form.set_border_width(5)
@@ -1826,8 +1842,8 @@ class RegistreerTab(Gtk.Box):
         omschrijving_scroll.add(self.omschrijving_view)
         form.pack_start(omschrijving_scroll, False, False, 0)
 
-        # Categorie & Tijdsperiode
-        cat_row = Gtk.Box(spacing=10)
+        # --- Rij: Categorie | Tijdsperiode | Staat ---
+        cat_row = Gtk.Box(spacing=10, homogeneous=True)
         cat_col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
         cat_col.pack_start(self._label("Categorie"), False, False, 0)
         self.categorie_combo = Gtk.ComboBoxText.new_with_entry()
@@ -1843,137 +1859,134 @@ class RegistreerTab(Gtk.Box):
             self.tijdsperiode_combo.append_text(t)
         tp_col.pack_start(self.tijdsperiode_combo, False, False, 0)
         cat_row.pack_start(tp_col, True, True, 0)
-        form.pack_start(cat_row, False, False, 0)
 
-        # Categorie op Marktplaats (bepaalt welke kenmerken en verzendopties Marktplaats toont)
-        mp_col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
-        mp_col.pack_start(self._label("Marktplaats-categorie (optioneel; de Automater kiest deze, anders de eerste suggestie)"), False, False, 0)
-        self.mp_categorie_entry = Gtk.Entry()
-        self.mp_categorie_entry.set_placeholder_text("bijv. Krukjes, Lampen | Losse lampen, Overige meubels")
-        mp_col.pack_start(self.mp_categorie_entry, False, False, 0)
-        form.pack_start(mp_col, False, False, 0)
-
-        # Categorie op Vinted
-        vt_col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
-        vt_col.pack_start(self._label("Vinted-categorie (optioneel; leeg = eerste suggestie van Vinted)"), False, False, 0)
-        self.vinted_categorie_entry = Gtk.Entry()
-        self.vinted_categorie_entry.set_placeholder_text("bijv. Salontafels  of  Home > Meubilair > Salontafels")
-        vt_col.pack_start(self.vinted_categorie_entry, False, False, 0)
-        form.pack_start(vt_col, False, False, 0)
-
-        # Kenmerken (Whoppah en Marktplaats vragen hier allebei om)
-        form.pack_start(self._label("Kenmerken (optioneel; Whoppah gebruikt deze in plaats van de gok van hun AI)"), False, False, 0)
-        kenm_row = Gtk.Box(spacing=5)
-        self.merk_entry = self._number_entry("Merk")
-        self.materiaal_entry = self._number_entry("Materiaal")
-        self.stijl_entry = self._number_entry("Stijl")
-        self.kleur_entry = self._number_entry("Kleur")
-        for e in (self.merk_entry, self.materiaal_entry, self.stijl_entry, self.kleur_entry):
-            kenm_row.pack_start(e, True, True, 0)
-        form.pack_start(kenm_row, False, False, 0)
-        self.extra_info_entry = Gtk.Entry()
-        self.extra_info_entry.set_placeholder_text("Extra info voor de koper (bijv. 'Zelf ontworpen', 'gekocht in 2016')")
-        form.pack_start(self.extra_info_entry, False, False, 0)
-
-        # Verkoopkanalen
-        form.pack_start(self._label("Plaatsen op"), False, False, 0)
-        kanalen_row = Gtk.Box(spacing=15)
-        self.kanaal_marktplaats_check = Gtk.CheckButton(label="Marktplaats")
-        self.kanaal_marktplaats_check.set_active(True)
-        self.kanaal_whoppah_check = Gtk.CheckButton(label="Whoppah")
-        self.kanaal_vinted_check = Gtk.CheckButton(label="Vinted")
-        for c in (self.kanaal_marktplaats_check, self.kanaal_whoppah_check, self.kanaal_vinted_check):
-            kanalen_row.pack_start(c, False, False, 0)
-        form.pack_start(kanalen_row, False, False, 0)
-
-        # Conditie
-        form.pack_start(self._label("Staat van het artikel"), False, False, 0)
+        staat_col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+        staat_col.pack_start(self._label("Staat"), False, False, 0)
         self.conditie_combo = Gtk.ComboBoxText()
         for c in CONDITIES:
             self.conditie_combo.append_text(c)
         self.conditie_combo.connect("changed", self._on_conditie_changed)
-        form.pack_start(self.conditie_combo, False, False, 0)
+        staat_col.pack_start(self.conditie_combo, False, False, 0)
+        cat_row.pack_start(staat_col, True, True, 0)
+        form.pack_start(cat_row, False, False, 0)
 
-        self.condition_details_container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+        self.condition_details_container = Gtk.FlowBox()
+        self.condition_details_container.set_selection_mode(Gtk.SelectionMode.NONE)
+        self.condition_details_container.set_max_children_per_line(3)
+        self.condition_details_container.set_min_children_per_line(2)
+        self.condition_details_container.set_homogeneous(True)
         form.pack_start(self.condition_details_container, False, False, 0)
-
         self.staat_details_extra_entry = Gtk.Entry()
         self.staat_details_extra_entry.set_placeholder_text("Overige staat-details (optioneel, vrije tekst)")
         form.pack_start(self.staat_details_extra_entry, False, False, 0)
 
-        # Afmetingen & gewicht
-        form.pack_start(self._label("Afmetingen (cm) en gewicht (kg)"), False, False, 0)
-        dim_row = Gtk.Box(spacing=5)
+        # --- Rij: Afmeting | Waarde ---
+        meet_row = Gtk.Box(spacing=18, homogeneous=True)
+        dim_col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+        dim_col.pack_start(self._label("Afmeting (cm) en gewicht (kg)"), False, False, 0)
+        dim_row = Gtk.Box(spacing=5, homogeneous=True)
         self.lengte_entry = self._number_entry("Lengte")
         self.breedte_entry = self._number_entry("Breedte")
         self.hoogte_entry = self._number_entry("Hoogte")
         self.gewicht_entry = self._number_entry("Gewicht")
         for e in (self.lengte_entry, self.breedte_entry, self.hoogte_entry, self.gewicht_entry):
+            e.set_width_chars(4)
             dim_row.pack_start(e, True, True, 0)
-        form.pack_start(dim_row, False, False, 0)
+        dim_col.pack_start(dim_row, False, False, 0)
+        meet_row.pack_start(dim_col, True, True, 0)
+
+        waarde_col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+        waarde_col.pack_start(self._label("Waarde en vraagprijs (€)"), False, False, 0)
+        waarde_row = Gtk.Box(spacing=5, homogeneous=True)
+        self.waarde_min_entry = self._number_entry("Min.")
+        self.waarde_max_entry = self._number_entry("Max.")
+        self.vraagprijs_entry = self._number_entry("Vraagprijs")
+        for e in (self.waarde_min_entry, self.waarde_max_entry, self.vraagprijs_entry):
+            e.set_width_chars(5)
+            waarde_row.pack_start(e, True, True, 0)
+        waarde_col.pack_start(waarde_row, False, False, 0)
+        meet_row.pack_start(waarde_col, True, True, 0)
+        form.pack_start(meet_row, False, False, 0)
 
         self.verzendadvies_label = Gtk.Label()
         self.verzendadvies_label.set_xalign(0)
         self.verzendadvies_label.set_line_wrap(True)
         self.verzendadvies_label.set_no_show_all(True)
         form.pack_start(self.verzendadvies_label, False, False, 0)
-        for e in (self.lengte_entry, self.breedte_entry, self.hoogte_entry, self.gewicht_entry,
-                  self.mp_categorie_entry):
-            e.connect("changed", self._update_verzendadvies)
 
-        # Waarde & vraagprijs
-        form.pack_start(self._label("Geschatte waarde en vraagprijs (€)"), False, False, 0)
-        waarde_row = Gtk.Box(spacing=5)
-        self.waarde_min_entry = self._number_entry("Min. waarde")
-        self.waarde_max_entry = self._number_entry("Max. waarde")
-        self.vraagprijs_entry = self._number_entry("Vraagprijs")
-        for e in (self.waarde_min_entry, self.waarde_max_entry, self.vraagprijs_entry):
-            waarde_row.pack_start(e, True, True, 0)
-        form.pack_start(waarde_row, False, False, 0)
+        # --- Rij: Merk, Materiaal, Stijl, Kleur | Opslaglocatie ---
+        onder_row = Gtk.Box(spacing=18, homogeneous=True)
+        kenm_col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+        kenm_col.pack_start(self._label("Merk, materiaal, stijl en kleur"), False, False, 0)
+        kenm_row = Gtk.Box(spacing=5, homogeneous=True)
+        self.merk_entry = self._number_entry("Merk")
+        self.materiaal_entry = self._number_entry("Materiaal")
+        self.stijl_entry = self._number_entry("Stijl")
+        self.kleur_entry = self._number_entry("Kleur")
+        for e in (self.merk_entry, self.materiaal_entry, self.stijl_entry, self.kleur_entry):
+            e.set_width_chars(4)
+            kenm_row.pack_start(e, True, True, 0)
+        kenm_col.pack_start(kenm_row, False, False, 0)
+        onder_row.pack_start(kenm_col, True, True, 0)
 
-        # Opslaglocatie / Sublocatie / Rij
-        form.pack_start(self._label("Opslaglocatie (bepaalt de eerste 3 tekens van het artikelnummer)"), False, False, 0)
-        loc_row = Gtk.Box(spacing=5)
+        loc_col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+        loc_col.pack_start(self._label("Opslaglocatie (eerste 3 tekens artikelnummer)"), False, False, 0)
+        loc_row = Gtk.Box(spacing=5, homogeneous=True)
         self.opslaglocatie_combo = Gtk.ComboBoxText()
         for naam in self.config.get("opslaglocatie_codes", {}).keys():
             self.opslaglocatie_combo.append_text(naam)
         loc_row.pack_start(self.opslaglocatie_combo, True, True, 0)
-
         self.sublocatie_combo = Gtk.ComboBoxText()
         for naam in self.config.get("sublocatie_codes", {}).keys():
             self.sublocatie_combo.append_text(naam)
         loc_row.pack_start(self.sublocatie_combo, True, True, 0)
-
         self.rij_combo = Gtk.ComboBoxText()
         for naam in self.config.get("rij_codes", {}).keys():
             self.rij_combo.append_text(naam)
         loc_row.pack_start(self.rij_combo, True, True, 0)
-        form.pack_start(loc_row, False, False, 0)
+        loc_col.pack_start(loc_row, False, False, 0)
+        onder_row.pack_start(loc_col, True, True, 0)
+        form.pack_start(onder_row, False, False, 0)
 
-        # Info over dynamische map
-        info_label = Gtk.Label()
-        info_label.set_markup(
-            f"<small><i>📁 Productmap wordt aangemaakt in: {vind_marktplaats_map(self.config)}</i></small>"
-        )
-        info_label.set_xalign(0)
-        info_label.set_line_wrap(True)
-        form.pack_start(info_label, False, False, 5)
+        # --- Meer opties (ingeklapt): platformcategorieën, extra info, kanalen ---
+        meer = Gtk.Expander(label="Meer opties (platformcategorie, extra info, kanalen)")
+        meer_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        meer_box.set_border_width(4)
+        meer.add(meer_box)
+        form.pack_start(meer, False, False, 0)
 
-        # Barcode opties
-        barcode_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
-        barcode_box.set_border_width(5)
-        barcode_box.set_margin_top(5)
+        self.mp_categorie_entry = Gtk.Entry()
+        self.mp_categorie_entry.set_placeholder_text("Marktplaats-categorie, bijv. Krukjes, Lampen | Losse lampen (leeg = eerste suggestie)")
+        meer_box.pack_start(self.mp_categorie_entry, False, False, 0)
+        self.vinted_categorie_entry = Gtk.Entry()
+        self.vinted_categorie_entry.set_placeholder_text("Vinted-categorie, bijv. Salontafels (leeg = eerste suggestie van Vinted)")
+        meer_box.pack_start(self.vinted_categorie_entry, False, False, 0)
+        self.extra_info_entry = Gtk.Entry()
+        self.extra_info_entry.set_placeholder_text("Extra info voor de koper (bijv. 'Zelf ontworpen', 'gekocht in 2016')")
+        meer_box.pack_start(self.extra_info_entry, False, False, 0)
+        kanalen_row = Gtk.Box(spacing=15)
+        kanalen_row.pack_start(Gtk.Label(label="Plaatsen op:"), False, False, 0)
+        self.kanaal_marktplaats_check = Gtk.CheckButton(label="Marktplaats")
+        self.kanaal_marktplaats_check.set_active(True)
+        self.kanaal_whoppah_check = Gtk.CheckButton(label="Whoppah")
+        self.kanaal_vinted_check = Gtk.CheckButton(label="Vinted")
+        for c in (self.kanaal_marktplaats_check, self.kanaal_whoppah_check, self.kanaal_vinted_check):
+            kanalen_row.pack_start(c, False, False, 0)
+        meer_box.pack_start(kanalen_row, False, False, 0)
+        for e in (self.lengte_entry, self.breedte_entry, self.hoogte_entry, self.gewicht_entry,
+                  self.mp_categorie_entry):
+            e.connect("changed", self._update_verzendadvies)
 
+        # --- Onderste rij: barcode-opties links, opslaan rechts ---
+        barcode_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
         self.barcode_check = Gtk.CheckButton(label="Barcode genereren bij opslaan")
         self.barcode_check.set_active(True)
         barcode_box.pack_start(self.barcode_check, False, False, 0)
-
         self.meerdere_barcodes_check = Gtk.CheckButton(label="Meerdere barcodes printen (bijv. voor sets)")
         self.meerdere_barcodes_check.connect("toggled", self._on_meerdere_barcodes_toggled)
         barcode_box.pack_start(self.meerdere_barcodes_check, False, False, 0)
-
         self.aantal_barcodes_row = Gtk.Box(spacing=5)
-        self.aantal_barcodes_row.set_visible(False)
+        self.aantal_barcodes_row.set_no_show_all(True)
         self.aantal_barcodes_row.pack_start(Gtk.Label(label="Aantal barcodes:"), False, False, 0)
         self.aantal_barcodes_entry = Gtk.Entry()
         self.aantal_barcodes_entry.set_text("3")
@@ -1981,12 +1994,23 @@ class RegistreerTab(Gtk.Box):
         self.aantal_barcodes_row.pack_start(self.aantal_barcodes_entry, False, False, 0)
         barcode_box.pack_start(self.aantal_barcodes_row, False, False, 0)
 
-        form.pack_start(barcode_box, False, False, 0)
-
-        # Opslaan-knop
+        onderrij = Gtk.Box(spacing=12)
+        onderrij.set_margin_top(6)
+        onderrij.pack_start(barcode_box, True, True, 0)
         self.opslaan_btn = Gtk.Button(label="💾 Product registreren")
+        self.opslaan_btn.set_size_request(220, 44)
+        self.opslaan_btn.get_style_context().add_class("suggested-action")
         self.opslaan_btn.connect("clicked", self._on_opslaan)
-        form.pack_start(self.opslaan_btn, False, False, 10)
+        onderrij.pack_end(self.opslaan_btn, False, False, 0)
+        form.pack_start(onderrij, False, False, 0)
+
+        info_label = Gtk.Label()
+        info_label.set_markup(
+            f"<small><i>📁 Productmap wordt aangemaakt in: {vind_marktplaats_map(self.config)}</i></small>"
+        )
+        info_label.set_xalign(0)
+        info_label.set_line_wrap(True)
+        form.pack_start(info_label, False, False, 0)
 
         self.status_label = Gtk.Label()
         self.status_label.set_xalign(0)
@@ -2001,8 +2025,9 @@ class RegistreerTab(Gtk.Box):
         self.tutorial_toggle_btn.connect("clicked", self._on_tutorial_toggle)
         top_row.pack_end(self.tutorial_toggle_btn, False, False, 8)
 
-        self.gemini_btn = Gtk.Button(label="📋 Plak Gemini-tekst")
-        self.gemini_btn.set_tooltip_text("Vult titel, omschrijving, kenmerken en waarde in uit een Gemini-antwoord")
+        self.gemini_btn = Gtk.Button(label="📋 Plak AI-tekst")
+        self.gemini_btn.set_tooltip_text("Geen API? Plak hier het antwoord van Copilot, ChatGPT, DeepSeek of Gemini; "
+                                         "vult titel, omschrijving, kenmerken en waarde in")
         self.gemini_btn.connect("clicked", self._on_gemini_plakken)
         top_row.pack_start(self.gemini_btn, False, False, 8)
 
@@ -2262,17 +2287,27 @@ class RegistreerTab(Gtk.Box):
         length = len(widget.get_text())
         self.titel_counter.set_text(f"{length}/{MAX_TITEL_LENGTE}")
 
-    def _on_gemini_plakken(self, widget):
+    def _on_gemini_plakken(self, widget, uitleg_prompt=False):
+        """Handmatige route (geen API): antwoord van Copilot, ChatGPT, DeepSeek of Gemini plakken."""
         from marktplaats_suite.gemini_import import parse
-        dialog = Gtk.Dialog(title="Gemini-tekst plakken", parent=self.main_window, flags=0)
+        dialog = Gtk.Dialog(title="AI-tekst plakken", transient_for=self.main_window, flags=0)
         dialog.add_buttons("Annuleren", Gtk.ResponseType.CANCEL, "Invullen", Gtk.ResponseType.OK)
         dialog.set_default_size(700, 480)
         box = dialog.get_content_area()
         box.set_border_width(10)
         box.set_spacing(8)
-        uitleg = Gtk.Label(label="Plak hier het antwoord van Gemini (titel, omschrijving, 'Details:' en 'Geschatte waarde').\n"
-                                 "Alleen velden die in de tekst staan worden ingevuld; de rest blijft zoals het is.")
+        if uitleg_prompt:
+            tekst = ("Er is nog geen API ingesteld, dus zo werkt het handmatig:\n"
+                     "1. De prompt staat al op je klembord. Plak die in Copilot, ChatGPT, DeepSeek of Gemini "
+                     "en voeg je foto's toe (je foto's staan hier: klik op een foto in de preview).\n"
+                     "2. Kopieer het antwoord en plak het hieronder.\n"
+                     "Wil je dit automatisch? Kies 'AI settings' en vul een gratis Gemini-sleutel in.")
+        else:
+            tekst = ("Plak hier het antwoord van de AI (titel, omschrijving, 'Details:' en 'Geschatte waarde').\n"
+                     "Alleen velden die in de tekst staan worden ingevuld; de rest blijft zoals het is.")
+        uitleg = Gtk.Label(label=tekst)
         uitleg.set_xalign(0)
+        uitleg.set_line_wrap(True)
         box.pack_start(uitleg, False, False, 0)
         sw = Gtk.ScrolledWindow()
         sw.set_vexpand(True)
@@ -2280,12 +2315,13 @@ class RegistreerTab(Gtk.Box):
         tv.set_wrap_mode(Gtk.WrapMode.WORD)
         sw.add(tv)
         box.pack_start(sw, True, True, 0)
-        try:
-            klem = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD).wait_for_text()
-            if klem and _lijkt_op_gemini(klem):
-                tv.get_buffer().set_text(klem)
-        except Exception:
-            pass
+        if not uitleg_prompt:
+            try:
+                klem = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD).wait_for_text()
+                if klem and _lijkt_op_gemini(klem):
+                    tv.get_buffer().set_text(klem)
+            except Exception:
+                pass
         dialog.show_all()
         tv.grab_focus()
         antwoord = dialog.run()
@@ -2294,12 +2330,331 @@ class RegistreerTab(Gtk.Box):
         dialog.destroy()
         if antwoord != Gtk.ResponseType.OK or not tekst.strip():
             return
-
         if not _lijkt_op_gemini(tekst):
-            self._toon_foutdialoog("Dit lijkt geen Gemini-antwoord: er staat geen regel 'Details:' én geen "
-                                   "'Geschatte waarde' in. Er is niets ingevuld.")
+            self._toon_foutdialoog("Dit lijkt geen AI-antwoord in het juiste formaat: er staat geen regel "
+                                   "'Details:' én geen 'Geschatte waarde' in. Er is niets ingevuld.")
             return
         velden, meld = parse(tekst)
+        self._vul_velden(velden, meld)
+
+    # ------------------------------------------------------------------
+    # Foto's, AI en foto-editor (alles in dit ene tabblad)
+    # ------------------------------------------------------------------
+    def _toon_foutdialoog(self, msg):
+        d = Gtk.MessageDialog(transient_for=self.main_window, flags=0,
+                              message_type=Gtk.MessageType.ERROR, buttons=Gtk.ButtonsType.OK, text=msg)
+        d.run()
+        d.destroy()
+
+    def _toon_info_dialoog(self, msg, title="Informatie"):
+        d = Gtk.MessageDialog(transient_for=self.main_window, flags=0,
+                              message_type=Gtk.MessageType.INFO, buttons=Gtk.ButtonsType.OK, text=msg)
+        d.set_title(title)
+        d.run()
+        d.destroy()
+
+    def _init_fotos(self):
+        self.fotos = []            # foto's in de werkmap (kopieën; je bronbestanden blijven ongemoeid)
+        self.versies = {}          # resultaat van de foto-editor: {"transparant": [...], ...}
+        self._werkmap = None
+        self.preview_versie = "originelen"
+        self.foto_status = None
+        # restanten van een eerdere sessie opruimen
+        shutil.rmtree(os.path.join(data_dir(), "nieuw_werkmap"), ignore_errors=True)
+
+    def _werkmap_pad(self):
+        if not self._werkmap:
+            basis = os.path.join(data_dir(), "nieuw_werkmap")
+            os.makedirs(basis, exist_ok=True)
+            import tempfile
+            self._werkmap = tempfile.mkdtemp(prefix="product_", dir=basis)
+        return self._werkmap
+
+    def _bouw_foto_paneel(self):
+        paneel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        paneel.set_size_request(340, -1)
+
+        knoppen = Gtk.Grid(column_spacing=6, row_spacing=6, column_homogeneous=True)
+        self.import_fotos_btn = Gtk.Button(label="📷 Import foto's")
+        self.import_fotos_btn.connect("clicked", self._on_import_fotos)
+        self.ai_btn = Gtk.Button(label="🤖 Import details van AI")
+        self.ai_btn.connect("clicked", self._on_ai_details)
+        self.foto_editor_btn = Gtk.Button(label="🖼️ Foto editor")
+        self.foto_editor_btn.connect("clicked", self._on_foto_editor)
+        self.ai_instellingen_btn = Gtk.Button(label="⚙️ AI settings")
+        self.ai_instellingen_btn.connect("clicked", self._on_ai_instellingen)
+        for b in (self.import_fotos_btn, self.ai_btn, self.foto_editor_btn, self.ai_instellingen_btn):
+            b.set_size_request(-1, 48)
+        knoppen.attach(self.import_fotos_btn, 0, 0, 1, 1)
+        knoppen.attach(self.ai_btn, 1, 0, 1, 1)
+        knoppen.attach(self.foto_editor_btn, 0, 1, 1, 1)
+        knoppen.attach(self.ai_instellingen_btn, 1, 1, 1, 1)
+        paneel.pack_start(knoppen, False, False, 0)
+
+        paneel.pack_start(self._label("Preview"), False, False, 0)
+        self.preview_store = Gtk.ListStore(GdkPixbuf.Pixbuf, str, str)
+        self.preview_view = Gtk.IconView(model=self.preview_store)
+        self.preview_view.set_pixbuf_column(0)
+        self.preview_view.set_text_column(1)
+        self.preview_view.set_item_width(84)
+        self.preview_view.set_columns(3)
+        self.preview_view.set_selection_mode(Gtk.SelectionMode.MULTIPLE)
+        self.preview_view.set_tooltip_text("Dubbelklik = openen · Delete = foto verwijderen")
+        self.preview_view.connect("item-activated", self._on_preview_open)
+        self.preview_view.connect("key-press-event", self._on_preview_key)
+        sw = Gtk.ScrolledWindow()
+        sw.set_shadow_type(Gtk.ShadowType.IN)
+        sw.set_size_request(-1, 230)
+        sw.add(self.preview_view)
+        paneel.pack_start(sw, True, True, 0)
+
+        radio_rij = Gtk.Box(spacing=4, homogeneous=True)
+        self.preview_radios = {}
+        eerste = None
+        for sleutel, tekst in (("originelen", "original"), ("transparant", "transparant"),
+                               ("zonder_logo", "white"), ("zonder_logo_bg", "custom bg")):
+            r = Gtk.RadioButton.new_with_label_from_widget(eerste, tekst)
+            eerste = eerste or r
+            r.connect("toggled", self._on_preview_versie, sleutel)
+            self.preview_radios[sleutel] = r
+            radio_rij.pack_start(r, True, True, 0)
+        paneel.pack_start(radio_rij, False, False, 0)
+
+        self.foto_status = Gtk.Label()
+        self.foto_status.set_xalign(0)
+        self.foto_status.set_line_wrap(True)
+        paneel.pack_start(self.foto_status, False, False, 0)
+        self._ververs_preview()
+        return paneel
+
+    def _foto_mappen(self):
+        """Welke fotomappen bestaan er nu in de werkmap?"""
+        w = self._werkmap
+        uit = {}
+        if w:
+            for sleutel in ("originelen", "transparant", "zonder_logo", "zonder_logo_bg"):
+                from marktplaats_suite.fotoverwerking import lijst_fotos
+                f = lijst_fotos(os.path.join(w, sleutel))
+                if f:
+                    uit[sleutel] = f
+        return uit
+
+    def _ververs_preview(self):
+        mappen = self._foto_mappen()
+        for sleutel, r in self.preview_radios.items():
+            r.set_sensitive(sleutel in mappen)
+        if self.preview_versie not in mappen:
+            self.preview_versie = "originelen"
+        self.preview_radios[self.preview_versie].handler_block_by_func(self._on_preview_versie)
+        self.preview_radios[self.preview_versie].set_active(True)
+        self.preview_radios[self.preview_versie].handler_unblock_by_func(self._on_preview_versie)
+        self.preview_store.clear()
+        for pad in mappen.get(self.preview_versie, []):
+            try:
+                pb = GdkPixbuf.Pixbuf.new_from_file_at_size(pad, 70, 70)
+                pb = pb.apply_embedded_orientation() or pb
+            except Exception:
+                continue
+            self.preview_store.append([pb, os.path.basename(pad), pad])
+        n = len(self.fotos)
+        self.foto_status.set_markup(f"<small>{n} foto's. Dubbelklik om te openen, Delete om te verwijderen.</small>" if n
+                                    else "<small>Nog geen foto's toegevoegd.</small>")
+
+    def _on_preview_versie(self, radio, sleutel):
+        if radio.get_active():
+            self.preview_versie = sleutel
+            self._ververs_preview()
+
+    def _on_preview_open(self, view, pad):
+        try:
+            open_extern(self.preview_store[pad][2])
+        except Exception as e:
+            self._toon_foutdialoog(f"Kon foto niet openen: {e}")
+
+    def _on_preview_key(self, view, event):
+        if event.keyval == Gdk.KEY_Delete and self.preview_versie == "originelen":
+            for pad in view.get_selected_items():
+                bestand = self.preview_store[pad][2]
+                try:
+                    os.remove(bestand)
+                except OSError:
+                    pass
+                if bestand in self.fotos:
+                    self.fotos.remove(bestand)
+            self._wis_versies()
+            self._ververs_preview()
+            return True
+        return False
+
+    def _wis_versies(self):
+        """Foto's veranderd: eerder gemaakte versies kloppen niet meer."""
+        if self._werkmap:
+            for sub in ("transparant", "zonder_logo", "met_logo", "zonder_logo_bg", "met_logo_bg"):
+                shutil.rmtree(os.path.join(self._werkmap, sub), ignore_errors=True)
+        self.versies = {}
+
+    def _on_import_fotos(self, widget):
+        start = ""
+        try:
+            with open(os.path.join(data_dir(), "fotomanager_config.json")) as f:
+                start = json.load(f).get("source_dir", "")
+        except (OSError, ValueError):
+            pass
+        if not start or not os.path.isdir(start):
+            start = os.path.expanduser("~")
+        try:
+            from marktplaats_suite.fotomanager import CustomFileChooser
+            dlg = CustomFileChooser(self.main_window, "Selecteer foto's", True, start)
+            if dlg.run() != Gtk.ResponseType.OK:
+                dlg.destroy()
+                return
+            paden = dlg.get_filenames()
+            dlg.destroy()
+        except Exception:
+            dlg = Gtk.FileChooserDialog(title="Selecteer foto's", transient_for=self.main_window,
+                                        action=Gtk.FileChooserAction.OPEN)
+            dlg.add_buttons("Annuleren", Gtk.ResponseType.CANCEL, "Openen", Gtk.ResponseType.OK)
+            dlg.set_select_multiple(True)
+            dlg.set_current_folder(start)
+            fl = Gtk.FileFilter()
+            fl.set_name("Afbeeldingen")
+            for pat in ("*.jpg", "*.jpeg", "*.png", "*.webp", "*.bmp", "*.JPG", "*.JPEG", "*.PNG"):
+                fl.add_pattern(pat)
+            dlg.add_filter(fl)
+            if dlg.run() != Gtk.ResponseType.OK:
+                dlg.destroy()
+                return
+            paden = dlg.get_filenames()
+            dlg.destroy()
+        self._voeg_fotos_toe(paden)
+
+    def _voeg_fotos_toe(self, paden):
+        from marktplaats_suite.fotoverwerking import FOTO_EXT
+        paden = [p for p in paden if p.lower().endswith(FOTO_EXT) and os.path.isfile(p)]
+        if not paden:
+            return
+        d = os.path.join(self._werkmap_pad(), "originelen")
+        os.makedirs(d, exist_ok=True)
+        for p in sorted(paden):
+            nr = len(self.fotos) + 1
+            doel = os.path.join(d, f"foto_{nr:03d}" + os.path.splitext(p)[1].lower())
+            shutil.copy2(p, doel)
+            self.fotos.append(doel)
+        self._wis_versies()
+        self.preview_versie = "originelen"
+        self._ververs_preview()
+
+    # --- AI ---
+    def _on_ai_instellingen(self, widget=None):
+        from marktplaats_suite import ai
+        cfg = ai.laad()
+        dlg = Gtk.Dialog(title="AI-instellingen", transient_for=self.main_window, flags=0)
+        dlg.add_buttons("Annuleren", Gtk.ResponseType.CANCEL, "Opslaan", Gtk.ResponseType.OK)
+        dlg.set_default_size(560, -1)
+        box = dlg.get_content_area()
+        box.set_spacing(8)
+        box.set_border_width(12)
+        uitleg = Gtk.Label()
+        uitleg.set_markup(
+            "De AI bekijkt je foto's en vult titel, omschrijving, kenmerken en waarde in.\n"
+            "<small>Gratis en eenvoudig: <b>Google Gemini</b> (sleutel in 1 minuut op aistudio.google.com/apikey), "
+            "of <b>Ollama</b> lokaal (geen sleutel, geen internet). Geen API? Kies <b>handmatig</b>: de app "
+            "kopieert de prompt, jij plakt die in Copilot, ChatGPT of DeepSeek en plakt het antwoord terug.</small>")
+        uitleg.set_xalign(0)
+        uitleg.set_line_wrap(True)
+        box.pack_start(uitleg, False, False, 0)
+
+        combo = Gtk.ComboBoxText()
+        sleutels = list(ai.PROVIDERS)
+        for k in sleutels:
+            combo.append_text(ai.PROVIDERS[k])
+        combo.set_active(sleutels.index(cfg["provider"]) if cfg["provider"] in sleutels else 0)
+        box.pack_start(combo, False, False, 0)
+
+        grid = Gtk.Grid(column_spacing=8, row_spacing=6)
+        velden = {}
+        rijen = [("gemini_sleutel", "Gemini API-sleutel", True), ("gemini_model", "Gemini-model", False),
+                 ("openai_url", "OpenAI-compatibel: URL", False), ("openai_model", "Model (moet foto's begrijpen)", False),
+                 ("openai_sleutel", "API-sleutel (leeg bij Ollama)", True)]
+        for i, (k, tekst, geheim) in enumerate(rijen):
+            l = Gtk.Label(label=tekst)
+            l.set_xalign(0)
+            e = Gtk.Entry()
+            e.set_hexpand(True)
+            e.set_text(cfg.get(k, ""))
+            if geheim:
+                e.set_visibility(False)
+            grid.attach(l, 0, i, 1, 1)
+            grid.attach(e, 1, i, 1, 1)
+            velden[k] = e
+        box.pack_start(grid, False, False, 0)
+        voet = Gtk.Label()
+        voet.set_markup("<small>Tip Ollama: <tt>ollama pull qwen2.5vl</tt>, dan blijft de URL "
+                        "http://localhost:11434/v1. De sleutel wordt alleen op deze computer opgeslagen.</small>")
+        voet.set_xalign(0)
+        voet.set_line_wrap(True)
+        box.pack_start(voet, False, False, 0)
+
+        def wissel(*_):
+            p = sleutels[combo.get_active()]
+            for k, e in velden.items():
+                e.set_sensitive(k.startswith(p))
+        combo.connect("changed", wissel)
+        wissel()
+        dlg.show_all()
+        if dlg.run() == Gtk.ResponseType.OK:
+            cfg["provider"] = sleutels[combo.get_active()]
+            for k, e in velden.items():
+                cfg[k] = e.get_text().strip()
+            ai.bewaar(cfg)
+        dlg.destroy()
+
+    def _on_ai_details(self, widget):
+        from marktplaats_suite import ai
+        if not self.fotos:
+            self._toon_foutdialoog("Voeg eerst foto's toe met 'Import foto's'.")
+            return
+        cfg = ai.laad()
+        cats = self.config.get("categorieen", DEFAULT_CATEGORIEEN)
+        per = self.config.get("tijdsperiodes", DEFAULT_TIJDSPERIODES)
+        if not ai.is_klaar(cfg):
+            # geen API ingesteld: handmatige route (prompt naar klembord, antwoord plakken)
+            try:
+                kl = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
+                kl.set_text(ai.prompt(cats, per), -1)
+                kl.store()
+            except Exception:
+                pass
+            self._on_gemini_plakken(None, uitleg_prompt=True)
+            return
+        venster = VoortgangsVenster(self.main_window, "AI bekijkt de foto's", onbepaald=True)
+        venster.zet(None, f"{cfg['provider'].capitalize()} bekijkt {min(len(self.fotos), int(cfg.get('max_fotos', 6)))} foto's...")
+        self.ai_btn.set_sensitive(False)
+        fotos = list(self.fotos)
+        extra = ""
+
+        def werk():
+            try:
+                tekst, fout = ai.vraag(cfg, fotos, cats, per, extra), None
+            except ai.AIFout as e:
+                tekst, fout = None, str(e)
+            except Exception as e:
+                tekst, fout = None, f"Onverwachte fout: {e}"
+            venster.sluit()
+            GLib.idle_add(self._ai_klaar, tekst, fout)
+        threading.Thread(target=werk, daemon=True).start()
+
+    def _ai_klaar(self, tekst, fout):
+        self.ai_btn.set_sensitive(True)
+        if fout:
+            self._toon_foutdialoog(fout)
+            return False
+        from marktplaats_suite.gemini_import import parse
+        velden, meld = parse(tekst)
+        self._vul_velden(velden, meld)
+        return False
+
+    def _vul_velden(self, velden, meld):
         ingevuld = []
         if "titel" in velden:
             self.titel_entry.set_text(velden["titel"]); ingevuld.append("titel")
@@ -2309,19 +2664,197 @@ class RegistreerTab(Gtk.Box):
                             ("stijl", self.stijl_entry), ("kleur", self.kleur_entry),
                             ("lengte", self.lengte_entry), ("breedte", self.breedte_entry),
                             ("hoogte", self.hoogte_entry), ("gewicht", self.gewicht_entry),
-                            ("waarde_min", self.waarde_min_entry), ("waarde_max", self.waarde_max_entry)):
+                            ("waarde_min", self.waarde_min_entry), ("waarde_max", self.waarde_max_entry),
+                            ("marktplaats_categorie", self.mp_categorie_entry)):
             if velden.get(naam):
                 entry.set_text(velden[naam]); ingevuld.append(naam.replace("_", " "))
         if velden.get("tijdsperiode"):
             self.tijdsperiode_combo.get_child().set_text(velden["tijdsperiode"]); ingevuld.append("tijdsperiode")
+        if velden.get("categorie"):
+            cats = self.config.get("categorieen", DEFAULT_CATEGORIEEN)
+            gelijk = next((c for c in cats if c.lower() == velden["categorie"].lower()), velden["categorie"])
+            self.categorie_combo.get_child().set_text(gelijk); ingevuld.append("categorie")
         if velden.get("conditie") in CONDITIES:
             self.conditie_combo.set_active(CONDITIES.index(velden["conditie"])); ingevuld.append("staat")
-
-        tekst_uit = "Ingevuld: " + (", ".join(ingevuld) if ingevuld else "niets")
+        # vraagprijs voorstellen als die nog leeg is: gemiddelde van de waardeschatting
+        if not self.vraagprijs_entry.get_text().strip() and velden.get("waarde_min") and velden.get("waarde_max"):
+            try:
+                gem = (float(velden["waarde_min"]) + float(velden["waarde_max"])) / 2
+                self.vraagprijs_entry.set_text(f"{gem:g}"); ingevuld.append("vraagprijs")
+            except ValueError:
+                pass
+        tekst = "✅ AI heeft ingevuld: " + (", ".join(ingevuld) if ingevuld else "niets")
+        tekst += ". Controleer nog: afmetingen/gewicht, vraagprijs en opslaglocatie."
         if meld:
-            tekst_uit += "\n\nLet op:\n- " + "\n- ".join(meld)
-        tekst_uit += "\n\nControleer nog: categorie, afmetingen/gewicht en vraagprijs."
-        self._toon_info_dialoog(tekst_uit, "Gemini-tekst ingevuld")
+            tekst += "\n⚠️ " + " ".join(meld)
+        self.status_label.set_markup(f"<span foreground='green'>{GLib.markup_escape_text(tekst)}</span>")
+
+    # --- Foto-editor ---
+    def _foto_config(self):
+        try:
+            with open(os.path.join(data_dir(), "fotomanager_config.json")) as f:
+                return json.load(f)
+        except (OSError, ValueError):
+            return {}
+
+    def _bewaar_foto_config(self, wijzigingen):
+        cfg = self._foto_config()
+        cfg.update(wijzigingen)
+        try:
+            with open(os.path.join(data_dir(), "fotomanager_config.json"), "w") as f:
+                json.dump(cfg, f, indent=2)
+        except OSError:
+            pass
+
+    def _on_foto_editor(self, widget):
+        if not self.fotos:
+            self._toon_foutdialoog("Voeg eerst foto's toe met 'Import foto's'.")
+            return
+        cfg = self._foto_config()
+        dlg = Gtk.Dialog(title="Foto editor", transient_for=self.main_window, flags=0)
+        dlg.add_buttons("Sluiten", Gtk.ResponseType.CLOSE, "▶ Verwerk foto's", Gtk.ResponseType.OK)
+        dlg.set_default_size(520, -1)
+        box = dlg.get_content_area()
+        box.set_spacing(8)
+        box.set_border_width(12)
+        uitleg = Gtk.Label()
+        uitleg.set_markup("De originelen blijven altijd bewaard. Vink aan welke extra versies je wilt:")
+        uitleg.set_xalign(0)
+        box.pack_start(uitleg, False, False, 0)
+
+        chk_tr = Gtk.CheckButton(label="Transparante achtergrond (PNG)")
+        chk_tr.set_active(cfg.get("nieuw_transparant", False))
+        chk_wit = Gtk.CheckButton(label="Witte achtergrond")
+        chk_wit.set_active(cfg.get("nieuw_wit", False))
+        chk_cu = Gtk.CheckButton(label="Eigen achtergrond (kleur of afbeelding)")
+        chk_cu.set_active(cfg.get("nieuw_custom", False))
+        for c in (chk_tr, chk_wit, chk_cu):
+            box.pack_start(c, False, False, 0)
+
+        rij = Gtk.Grid(column_spacing=8, row_spacing=6)
+        rij.set_margin_start(24)
+        kleur = Gtk.ColorButton()
+        rgba = Gdk.RGBA()
+        rgba.parse(cfg.get("background_color") or "#ffffff")
+        kleur.set_rgba(rgba)
+        bg_img = Gtk.FileChooserButton(title="Achtergrondafbeelding")
+        if cfg.get("background_image") and os.path.exists(cfg["background_image"]):
+            bg_img.set_filename(cfg["background_image"])
+        rij.attach(Gtk.Label(label="Kleur:", xalign=0), 0, 0, 1, 1)
+        rij.attach(kleur, 1, 0, 1, 1)
+        rij.attach(Gtk.Label(label="of afbeelding:", xalign=0), 0, 1, 1, 1)
+        rij.attach(bg_img, 1, 1, 1, 1)
+        box.pack_start(rij, False, False, 0)
+
+        chk_logo = Gtk.CheckButton(label="Ook versies met logo en/of watermerk")
+        chk_logo.set_active(cfg.get("nieuw_logo", False))
+        box.pack_start(chk_logo, False, False, 0)
+        rij2 = Gtk.Grid(column_spacing=8, row_spacing=6)
+        rij2.set_margin_start(24)
+        wm = Gtk.FileChooserButton(title="Watermerk")
+        lg = Gtk.FileChooserButton(title="Logo")
+        if cfg.get("watermark_path") and os.path.exists(cfg["watermark_path"]):
+            wm.set_filename(cfg["watermark_path"])
+        if cfg.get("logo_path") and os.path.exists(cfg["logo_path"]):
+            lg.set_filename(cfg["logo_path"])
+        rij2.attach(Gtk.Label(label="Watermerk:", xalign=0), 0, 0, 1, 1)
+        rij2.attach(wm, 1, 0, 1, 1)
+        rij2.attach(Gtk.Label(label="Logo:", xalign=0), 0, 1, 1, 1)
+        rij2.attach(lg, 1, 1, 1, 1)
+        box.pack_start(rij2, False, False, 0)
+
+        box.pack_start(Gtk.Separator(), False, False, 4)
+        tools = Gtk.Box(spacing=6, homogeneous=True)
+        b_inspect = Gtk.Button(label="🔎 Inspecteren / roteren")
+        b_gimp = Gtk.Button(label="🖌 Open in GIMP")
+        tools.pack_start(b_inspect, True, True, 0)
+        tools.pack_start(b_gimp, True, True, 0)
+        box.pack_start(tools, False, False, 0)
+        hint = Gtk.Label()
+        hint.set_markup("<small>Roteren of bewerken in GIMP doe je <b>vóór</b> 'Verwerk foto's'. "
+                        "Bewaar in GIMP met Bestand → Overschrijven.</small>")
+        hint.set_xalign(0)
+        hint.set_line_wrap(True)
+        box.pack_start(hint, False, False, 0)
+
+        def inspecteer(_):
+            from marktplaats_suite.fotomanager import ImagePreviewWindow
+
+            class Schijn:
+                def __init__(s, tab): s.tab = tab
+                def cancel_processing(s): s._klaar()
+                def process_after_inspection(s): s._klaar()
+                def _klaar(s):
+                    s.tab._wis_versies()
+                    s.tab._ververs_preview()
+            ImagePreviewWindow(Schijn(self), list(self.fotos)).show_all()
+            dlg.response(Gtk.ResponseType.CLOSE)
+        b_inspect.connect("clicked", inspecteer)
+
+        def gimp(_):
+            import subprocess
+            env = {k: v for k, v in os.environ.items() if not k.startswith("QT_")}
+            try:
+                subprocess.Popen(["gimp"] + list(self.fotos), env=env, stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.DEVNULL, start_new_session=True)
+                self.foto_status.set_markup("<small>GIMP geopend. Bewaar je wijzigingen en klik daarna "
+                                            "op 'Verwerk foto's'.</small>")
+            except FileNotFoundError:
+                self._toon_foutdialoog("GIMP is niet geïnstalleerd (sudo apt install gimp).")
+        b_gimp.connect("clicked", gimp)
+
+        dlg.show_all()
+        antwoord = dlg.run()
+        opties = {
+            "transparant": chk_tr.get_active(), "wit": chk_wit.get_active(), "custom": chk_cu.get_active(),
+            "met_logo": chk_logo.get_active(),
+            "bg_kleur": "#%02x%02x%02x" % tuple(int(c * 255) for c in (kleur.get_rgba().red, kleur.get_rgba().green, kleur.get_rgba().blue)),
+            "bg_afbeelding": bg_img.get_filename() or "",
+            "watermerk": wm.get_filename() or "", "logo": lg.get_filename() or "",
+        }
+        dlg.destroy()
+        self._bewaar_foto_config({
+            "nieuw_transparant": opties["transparant"], "nieuw_wit": opties["wit"],
+            "nieuw_custom": opties["custom"], "nieuw_logo": opties["met_logo"],
+            "background_color": opties["bg_kleur"], "background_image": opties["bg_afbeelding"],
+            "watermark_path": opties["watermerk"], "logo_path": opties["logo"],
+        })
+        if antwoord != Gtk.ResponseType.OK:
+            return
+        self._verwerk_fotos(opties)
+
+    def _verwerk_fotos(self, opties, klaar=None):
+        from marktplaats_suite.fotoverwerking import maak_versies
+        stop = {"v": False}
+        venster = VoortgangsVenster(self.main_window, "Foto's verwerken", op_annuleren=lambda: stop.update(v=True))
+        self.foto_editor_btn.set_sensitive(False)
+        fotos = list(self.fotos)
+        doel = self._werkmap_pad()
+
+        def werk():
+            fout, uit = None, {}
+            try:
+                uit = maak_versies(fotos, doel, opties, voortgang=venster.zet, stop=lambda: stop["v"])
+            except Exception as e:
+                fout = str(e)
+            venster.sluit()
+            GLib.idle_add(self._verwerken_klaar, uit, fout, stop["v"], klaar)
+        threading.Thread(target=werk, daemon=True).start()
+
+    def _verwerken_klaar(self, uit, fout, gestopt, klaar):
+        self.foto_editor_btn.set_sensitive(True)
+        if fout:
+            self._toon_foutdialoog(fout)
+        elif not gestopt:
+            self.versies = uit
+            for k in ("transparant", "zonder_logo_bg", "zonder_logo"):
+                if k in uit:
+                    self.preview_versie = k
+                    break
+        self._ververs_preview()
+        if klaar:
+            klaar(not fout and not gestopt)
+        return False
 
     def _on_conditie_changed(self, widget):
         for child in self.condition_details_container.get_children():
@@ -2333,7 +2866,7 @@ class RegistreerTab(Gtk.Box):
         for optie in opties:
             check = Gtk.CheckButton(label=optie)
             self.condition_checks[optie] = check
-            self.condition_details_container.pack_start(check, False, False, 0)
+            self.condition_details_container.add(check)
         self.condition_details_container.show_all()
 
     def _verzamel_staat_details(self):
@@ -2342,6 +2875,35 @@ class RegistreerTab(Gtk.Box):
         if extra:
             geselecteerd.append(extra)
         return ", ".join(geselecteerd)
+
+    def _bewaar_fotos_in_map(self, folder):
+        """Verplaatst de fotoversies uit de werkmap naar de productmap en ruimt op."""
+        if not self.fotos:
+            return ""
+        from marktplaats_suite.fotoverwerking import maak_versies
+        if not self.versies:      # geen foto-editor gebruikt: originelen + JPEG-versie voor de Uploader
+            maak_versies(list(self.fotos), self._werkmap_pad(), {})
+        n = 0
+        for sub in sorted(os.listdir(self._werkmap)):
+            bron = os.path.join(self._werkmap, sub)
+            if not os.path.isdir(bron):
+                continue
+            doel = os.path.join(folder, sub)
+            os.makedirs(doel, exist_ok=True)
+            for f in os.listdir(bron):
+                shutil.move(os.path.join(bron, f), os.path.join(doel, f))
+                n += 1
+        self._ruim_werkmap_op()
+        return f"\n🖼️ {n} fotobestanden opgeslagen in de productmap"
+
+    def _ruim_werkmap_op(self):
+        if self._werkmap:
+            shutil.rmtree(self._werkmap, ignore_errors=True)
+        self._werkmap = None
+        self.fotos = []
+        self.versies = {}
+        self.preview_versie = "originelen"
+        self._ververs_preview()
 
     def _reset_form(self):
         self.titel_entry.set_text("")
@@ -2363,6 +2925,8 @@ class RegistreerTab(Gtk.Box):
             e.set_text("")
         self.meerdere_barcodes_check.set_active(False)
         self.aantal_barcodes_entry.set_text("2")
+        if self.fotos or self._werkmap:
+            self._ruim_werkmap_op()
         if self.tutorial_actief:
             self.tutorial_stap_index = 0
             self._tutorial_update()
@@ -2494,6 +3058,12 @@ class RegistreerTab(Gtk.Box):
             except Exception as e:
                 barcode_msg = f"\n⚠️ Barcode-fout: {e}"
 
+        foto_msg = ""
+        try:
+            foto_msg = self._bewaar_fotos_in_map(folder)
+        except Exception as e:
+            foto_msg = f"\n⚠️ Foto's opslaan mislukt: {e}"
+
         try:
             storage.add_product(product)
         except Exception as e:
@@ -2513,7 +3083,7 @@ class RegistreerTab(Gtk.Box):
         map_msg = "Bestaande map hergebruikt" if bestond_al else "Nieuwe map aangemaakt"
         self.status_label.set_markup(
             f"<span foreground='green'>✅ Product <b>{artikelnummer}</b> geregistreerd.\n"
-            f"📁 {map_msg}: {folder}{barcode_msg}{kopieer_msg}</span>"
+            f"📁 {map_msg}: {folder}{foto_msg}{barcode_msg}{kopieer_msg}</span>"
         )
         self._reset_form()
         self.main_window.overzicht_tab.herlaad()
@@ -2710,6 +3280,19 @@ class OverzichtTab(Gtk.Box):
         acties_btn.set_popup(acties_menu)
         actie_row.pack_start(acties_btn, False, False, 0)
 
+        # Uploaden naar Marktplaats: per stuk, geselecteerde of alle offline producten
+        upload_btn = Gtk.MenuButton(label="🚀 Upload naar Marktplaats")
+        upload_menu = Gtk.Menu()
+        item_up_sel = Gtk.MenuItem(label="Geselecteerde producten uploaden")
+        item_up_sel.connect("activate", lambda *_: self._on_upload(alles=False))
+        upload_menu.append(item_up_sel)
+        item_up_all = Gtk.MenuItem(label="Alle offline producten uploaden")
+        item_up_all.connect("activate", lambda *_: self._on_upload(alles=True))
+        upload_menu.append(item_up_all)
+        upload_menu.show_all()
+        upload_btn.set_popup(upload_menu)
+        actie_row.pack_start(upload_btn, False, False, 0)
+
         self.pack_start(actie_row, False, False, 0)
 
         # Status / Omzet label
@@ -2881,6 +3464,10 @@ class OverzichtTab(Gtk.Box):
     def _setup_context_menu(self):
         """Maak het context menu voor de rechtermuisknop."""
         self.context_menu = Gtk.Menu()
+
+        item_upload = Gtk.MenuItem(label="🚀 Upload naar Marktplaats")
+        item_upload.connect("activate", lambda *_: self._on_upload(alles=False))
+        self.context_menu.append(item_upload)
 
         item_map = Gtk.MenuItem(label="📂 Open bestandslocatie")
         item_map.connect("activate", self._on_open_map)
@@ -3368,12 +3955,69 @@ class OverzichtTab(Gtk.Box):
         return artikelnummers
 
     def _on_row_dubbelklik(self, tree_view, path, column):
+        """Dubbelklik: detailvenster met de advertentie, alle fotoversies en de status."""
         artikelnummer = self.store[path][0]
-        klembord = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
-        klembord.set_text(artikelnummer, -1)
-        klembord.store()
-        self.omzet_label.set_markup(f"<small>📋 Artikelnummer <b>{artikelnummer}</b> gekopieerd naar klembord</small>")
-        GLib.timeout_add(1500, self._herstel_omzet_label)
+        storage = get_backend(self.config)
+        product = next((p for p in storage.load_products() if p.get("artikelnummer") == artikelnummer), None)
+        if not product:
+            self._toon_foutdialoog("Product niet gevonden.")
+            return
+        productmap = vind_product_map(artikelnummer, self.config)
+        if not os.path.isdir(productmap):
+            productmap = None
+        omschrijving = ""
+        if productmap and os.path.exists(os.path.join(productmap, "omschrijving.txt")):
+            try:
+                with open(os.path.join(productmap, "omschrijving.txt"), encoding="utf-8") as f:
+                    omschrijving = f.read()
+            except OSError:
+                pass
+        if not omschrijving:
+            omschrijving = build_txt_beschrijving(product, self.config)
+        from marktplaats_suite.productdetail import ProductDetailVenster
+        ProductDetailVenster(self.main_window, product, productmap, omschrijving,
+                             op_bewerken=lambda: self._on_bewerken(None)).show_all()
+
+    def _on_upload(self, alles=False):
+        """Plaatst producten op Marktplaats via de Uploader, met een klein los statusvenster."""
+        app = getattr(self.main_window, "automater_app", None)
+        if app is None:
+            self._toon_foutdialoog("De Product Uploader kon niet worden geladen (zie het tabblad Product Uploader).")
+            return
+        storage = get_backend(self.config)
+        producten = {p.get("artikelnummer"): p for p in storage.load_products()}
+
+        def plaatsbaar(p):
+            kanalen = [k.strip() for k in (p.get("kanalen") or "marktplaats").split(",") if k.strip()]
+            return (p.get("verkocht", "").lower() != "ja" and p.get("online", "").lower() != "ja"
+                    and "marktplaats" in kanalen)
+
+        if alles:
+            nummers = [n for n, p in producten.items() if n and plaatsbaar(p)]
+            if not nummers:
+                self._toon_info_dialoog("Er zijn geen offline producten om te uploaden.")
+                return
+            d = Gtk.MessageDialog(transient_for=self.main_window, flags=0, message_type=Gtk.MessageType.QUESTION,
+                                  buttons=Gtk.ButtonsType.OK_CANCEL,
+                                  text=f"{len(nummers)} offline producten uploaden naar Marktplaats?")
+            ok = d.run() == Gtk.ResponseType.OK
+            d.destroy()
+            if not ok:
+                return
+        else:
+            gekozen = self._geselecteerde_artikelnummers()
+            if not gekozen:
+                self._toon_foutdialoog("Selecteer eerst een of meer producten, of kies 'Alle offline producten uploaden'.")
+                return
+            nummers = [n for n in gekozen if n in producten and plaatsbaar(producten[n])]
+            overgeslagen = len(gekozen) - len(nummers)
+            if not nummers:
+                self._toon_info_dialoog("De gekozen producten staan al online, zijn verkocht of zijn niet voor Marktplaats.")
+                return
+            if overgeslagen:
+                self.omzet_label.set_markup(f"<small>{overgeslagen} product(en) overgeslagen: al online, verkocht of niet voor Marktplaats</small>")
+        app.na_upload = self.herlaad
+        app.start_upload(nummers, parent=self.main_window)
 
     def _herstel_omzet_label(self):
         self.herlaad()
@@ -4605,7 +5249,7 @@ class MainWindow(Gtk.Window):
         vbox.pack_start(menu_row, False, False, 0)
 
         # ============================================
-        # NOTEBOOK (Tabs) - alleen Registreren, Overzicht, Dashboard
+        # NOTEBOOK (Tabs): Nieuw Product (incl. foto's en AI), Overzicht, Dashboard, Scanner, Uploader
         # ============================================
         self.notebook = Gtk.Notebook()
         vbox.pack_start(self.notebook, True, True, 0)
@@ -4621,7 +5265,6 @@ class MainWindow(Gtk.Window):
         self.notebook.append_page(self.dashboard_tab, Gtk.Label(label="📈 Sales Dashboard"))
 
         # Overige onderdelen van SellYourShit als tabs
-        self.foto_tab = self._maak_onderdeel_tab("📷 Product Studio", "marktplaats_suite.fotomanager", "MarktplaatsApp")
         self.scanner_tab = self._maak_onderdeel_tab("🔍 Product Scanner", "marktplaats_suite.scanner", "MainWindow")
         self.automater_app = None
         try:

@@ -8,8 +8,8 @@ Alles in **één venster** met tabs:
 
 | Tab | Was | Doel |
 |---|---|---|
-| 📝 Nieuw Product / 📊 Product Management / 📈 Sales Dashboard | MarktplaatsProductmanager | Producten registreren, labels/barcodes, verkocht/retour/gereserveerd, statistieken |
-| 📷 Product Studio | MarktplaatsFotoManager | Foto's verwerken (achtergrond, watermerk, logo, mappenstructuur) |
+| 📝 Nieuw Product | MarktplaatsProductmanager + FotoManager | Foto's, AI-omschrijving, fotoversies en artikel aanmaken in één tab |
+| 📊 Product Management / 📈 Sales Dashboard | MarktplaatsProductmanager | Overzicht, detailvenster (dubbelklik), uploaden, verkocht/retour/gereserveerd, statistieken |
 | 🔍 Product Scanner | MarktplaatsScanner | USB-barcodescanner met productinfo en foto |
 | 🤖 Product Uploader | MarktplaatsAutomater | Advertenties automatisch plaatsen, nu alleen voor Marktplaats (Selenium + Chrome/Chromium) |
 
@@ -67,7 +67,6 @@ naar die map; de fotomanager-instellingen heten nu `fotomanager_config.json`
 - Alle onderdelen delen één kolomlijst voor `producten.xml`; de Scanner past bij "verkocht" alleen dat ene
   product aan en wist geen velden van andere onderdelen meer.
 
-- **Product Studio** pakt zip-bestanden in de bronmap zelf uit: alle foto's uit elke zip doen mee, zonder dat je iets handmatig uitpakt.
 
 ## Whoppah en Vinted (userscripts)
 
@@ -91,9 +90,37 @@ Verkoop je namens een winkel of kringloop, gebruik dan een Vinted Pro-account.
 
 De brug in de Suite luistert alleen op 127.0.0.1 en accepteert alleen verzoeken met een lokale hostnaam.
 
-## Gemini-tekst plakken
+## Nieuw product: foto's, AI en fotoversies in één tab
 
-Op *Nieuw Product* staat de knop **📋 Plak Gemini-tekst**. Plak het antwoord van Gemini; de app vult
-titel (max. 60 tekens), omschrijving (inclusief 'Details:'), merk, materiaal, kleur, stijl,
-afmetingen (bij 'Afmeting: L x B x H'), staat en geschatte waarde (min/max) in. Alleen velden die in
-de tekst staan worden overschreven.
+1. **📷 Import foto's**: kies de foto's. De app werkt op kopieën; je bronbestanden blijven staan.
+2. **🤖 Import details van AI**: de AI bekijkt de foto's en vult titel (max. 60 tekens, altijd met het
+   soort voorwerp erin, bijv. *bank*), omschrijving met een `Details:`-lijst (`* `-opsommingstekens),
+   categorie, tijdsperiode, stijl, merk, kleur, staat en waarde in. De vraagprijs wordt het gemiddelde
+   van de waardeschatting als je die nog niet had ingevuld.
+3. **🖼️ Foto editor**: optioneel extra versies: transparant, witte achtergrond, eigen achtergrond
+   (kleur of afbeelding), en die versies ook met logo/watermerk. Hier kun je ook roteren
+   (inspecteren) of de foto's openen in GIMP. De keuzes onder de preview (original / transparant /
+   white / custom bg) laten zien welke versie je bekijkt.
+4. **💾 Product registreren**: artikelnummer, productmap, barcode en alle foto's komen in één keer
+   op hun plek (`originelen/`, `zonder_logo/`, `met_logo/`, ...). Het artikelnummer komt als
+   `* Artikelnummer:` onderaan de details in de advertentietekst.
+
+**⚙️ AI settings**: kies zelf welke AI je gebruikt.
+- **Google Gemini** (standaard): gratis API-sleutel aanmaken op https://aistudio.google.com/apikey.
+- **OpenAI-compatibel**: Ollama lokaal (gratis, geen sleutel, geen internet; bijv. `ollama pull qwen2.5vl`),
+  OpenRouter, Mistral, OpenAI, LM Studio.
+- **Handmatig, zonder API**: de app zet de prompt op je klembord; plak die met je foto's in Copilot,
+  ChatGPT, DeepSeek of de Gemini-site en plak het antwoord terug (ook via **📋 Plak AI-tekst**).
+
+Voor transparant/wit/eigen achtergrond is achtergrondverwijdering nodig: installeer met
+`./install.sh --met-ai` (rembg of transparent-background).
+
+## Product Management
+
+- **Dubbelklik** op een product opent een detailvenster: de advertentietekst zoals hij geplaatst wordt,
+  alle gegevens, links naar platforms, online/verkocht-status en alle fotoversies. Foto's sleep je zo
+  naar een uploadveld in je browser; titel, nummer, prijs en omschrijving kopieer je met één klik.
+- **🚀 Upload naar Marktplaats** (onderaan, of rechtermuisknop): upload de geselecteerde producten of
+  alle offline producten. De voortgang verschijnt in een klein los venster met de knoppen
+  Ingelogd / Volgende / Overslaan / Stop; het hoofdvenster blijft vrij.
+
