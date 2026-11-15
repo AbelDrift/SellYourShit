@@ -6,13 +6,17 @@ jobs:
   proef:
     runs-on: windows-latest
     steps:
-      - run: |
-          echo hallo van windows
-          python --version
-          where iscc
-          dir "C:\Program Files (x86)\Inno Setup 6" | Select-Object -First 3
-      - run: echo "proef" > uitvoer.txt
-      - uses: actions/upload-artifact@v4
-        with:
-          name: proef
-          path: uitvoer.txt
+      - name: gvsbuild-releases bekijken
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $r = Invoke-RestMethod -Headers @{Authorization="Bearer $env:GH_TOKEN"} "https://api.github.com/repos/wingtk/gvsbuild/releases?per_page=4"
+          foreach ($rel in $r) { "== $($rel.tag_name) $($rel.published_at)"; foreach ($a in $rel.assets) { "   $($a.name)  $([math]::Round($a.size/1MB,1)) MB" } }
+          "== pip gvsbuild"
+          python -m pip index versions gvsbuild 2>$null | Select-Object -First 1
+          "== nuget python"
+          (Invoke-RestMethod "https://api.nuget.org/v3-flatcontainer/python/index.json").versions | Select-Object -Last 6
+          "== tools"
+          Get-Command nuget, iscc, makensis -ErrorAction SilentlyContinue | Select-Object Name, Source
+          Test-Path C:\msys64
