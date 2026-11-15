@@ -6,17 +6,16 @@ jobs:
   proef:
     runs-on: windows-latest
     steps:
-      - name: gvsbuild-releases bekijken
+      - name: GTK3-bundel bekijken
         shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
-          $r = Invoke-RestMethod -Headers @{Authorization="Bearer $env:GH_TOKEN"} "https://api.github.com/repos/wingtk/gvsbuild/releases?per_page=4"
-          foreach ($rel in $r) { "== $($rel.tag_name) $($rel.published_at)"; foreach ($a in $rel.assets) { "   $($a.name)  $([math]::Round($a.size/1MB,1)) MB" } }
-          "== pip gvsbuild"
-          python -m pip index versions gvsbuild 2>$null | Select-Object -First 1
-          "== nuget python"
-          (Invoke-RestMethod "https://api.nuget.org/v3-flatcontainer/python/index.json").versions | Select-Object -Last 6
-          "== tools"
-          Get-Command nuget, iscc, makensis -ErrorAction SilentlyContinue | Select-Object Name, Source
-          Test-Path C:\msys64
+          $url = "https://github.com/wingtk/gvsbuild/releases/download/2026.10.0/GTK3_Gvsbuild_2026.10.0_x64.zip"
+          Invoke-WebRequest $url -OutFile gtk3.zip
+          Expand-Archive gtk3.zip -DestinationPath C:\gtk3
+          "== bovenste mappen"; Get-ChildItem C:\gtk3 | Select-Object -ExpandProperty Name
+          "== wheels"; Get-ChildItem C:\gtk3 -Recurse -Filter *.whl | Select-Object -ExpandProperty FullName
+          "== typelibs"; (Get-ChildItem C:\gtk3\lib\girepository-1.0 -ErrorAction SilentlyContinue | Measure-Object).Count
+          "== gdk-pixbuf loaders"; Get-ChildItem C:\gtk3\lib\gdk-pixbuf-2.0 -Recurse -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name | Select-Object -First 15
+          "== icons"; Get-ChildItem C:\gtk3\share\icons -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name
+          "== exes"; Get-ChildItem C:\gtk3\bin -Filter *.exe | Select-Object -ExpandProperty Name | Select-Object -First 40
+          "== grootte bin MB"; [math]::Round((Get-ChildItem C:\gtk3\bin -Recurse | Measure-Object Length -Sum).Sum/1MB)
