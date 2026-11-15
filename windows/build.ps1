@@ -74,7 +74,8 @@ $wheels = Get-ChildItem "$gv\wheels\*.whl" | ForEach-Object { $_.FullName }
 
 # ---- 4. De app met al haar onderdelen ----
 Stap "SellYourShit en onderdelen (met achtergrond weghalen op de processor)"
-& $py -m pip install --disable-pip-version-check --no-warn-script-location -q --prefer-binary "$root[ai]" pywin32
+& $py -m pip install --disable-pip-version-check --no-warn-script-location -q --prefer-binary `
+    -c "$root\windows\constraints.txt" "$root[ai]" pywin32
 Controleer "pakketten installeren"
 
 # ---- 5. Opruimen: alleen nodig om zelf C++-uitbreidingen te bouwen ----
