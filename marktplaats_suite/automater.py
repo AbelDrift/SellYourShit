@@ -532,6 +532,14 @@ class MarktplaatsAuto:
             self.logger.info(f"\n{'='*50}")
             self.logger.info(f"📦 Product {processed}/{total}: {product['artikelnummer']}")
             self.logger.info(f"📝 Titel: {product['titel']}")
+            try:
+                adv = self._verzendadvies(product)
+            except Exception:
+                adv = None
+            adv_tekst = adv["tekst"] if adv else "geen advies (afmetingen of gewicht ontbreken)"
+            self.logger.info(f"📦 Verzendadvies: {adv_tekst}")
+            if getattr(self, "on_verzendadvies", None):
+                self.on_verzendadvies(adv_tekst)
             self.logger.info(f"{'='*50}")
 
             if not self.process_one_product(product):
@@ -572,17 +580,30 @@ class MarktplaatsAuto:
         return beste;
     """
 
+    _JS_KLIK_LABEL = """
+        const inp = arguments[0];
+        const lbl = (inp.id && document.querySelector('label[for="' + inp.id + '"]')) || inp.closest('label') || inp.parentElement;
+        if (lbl) { lbl.scrollIntoView({block:'center'}); lbl.click(); return true; }
+        return false;
+    """
+
     def _zet_keuze(self, soort, tekst, aan=True, begin=False):
-        """Zet een radio/checkbox aan of uit op basis van de zichtbare tekst. True als gevonden."""
+        """Zet een radio/checkbox aan of uit op basis van de zichtbare tekst.
+
+        None als hij niet gevonden is, True als hij daarna goed staat, False als dat niet lukte."""
         inp = self.driver.execute_script(self._JS_ZOEK_KEUZE, soort, tekst, begin)
         if inp is None:
-            return False
-        huidig = bool(self.driver.execute_script("return arguments[0].checked;", inp))
-        if huidig != aan:
-            self.driver.execute_script(
-                "arguments[0].scrollIntoView({block:'center'}); arguments[0].click();", inp)
+            return None
+        for poging in range(3):
+            if bool(self.driver.execute_script("return arguments[0].checked;", inp)) == aan:
+                return True
+            if poging == 0:
+                self.driver.execute_script(
+                    "arguments[0].scrollIntoView({block:'center'}); arguments[0].click();", inp)
+            elif poging == 1:
+                self.driver.execute_script(self._JS_KLIK_LABEL, inp)   # sommige knoppen reageren alleen op het label
             time.sleep(0.4)
-        return True
+        return bool(self.driver.execute_script("return arguments[0].checked;", inp)) == aan
 
     def _klik_verder(self):
         """Klikt op de knop 'Verder'; valt terug op Tab-navigatie zoals voorheen."""
@@ -599,29 +620,69 @@ class MarktplaatsAuto:
             actions.send_keys(Keys.TAB)
         actions.send_keys(Keys.ENTER).perform()
 
-    def _stel_verzending_in(self, product):
-        """Vinkt passende vervoerders aan en kiest de pakketgrootte op basis van afmetingen en gewicht."""
-        from marktplaats_suite.verzending import kies_automatisch
+    def _verzendadvies(self, product):
+        from marktplaats_suite.verzending import advies
         row = product["row"]
         def veld(naam):
             return row[COL[naam]] if len(row) > COL[naam] else ""
-        keuze = kies_automatisch(veld("lengte"), veld("breedte"), veld("hoogte"), veld("gewicht"))
-        if not keuze:
-            self.logger.info("   ℹ️ Verzending: geen pakketadvies (afmetingen ontbreken of te groot), handmatig instellen")
+        return advies(veld("lengte"), veld("breedte"), veld("hoogte"), veld("gewicht"))
+
+    def _kies_pakketgrootte(self, klasse):
+        """Zoekt het keuzerondje van de pakketgrootte op een paar manieren (tekst kan afwijken)."""
+        for tekst, begin in ((klasse.lower(), True), (klasse.split()[0].lower(), True), (klasse.lower(), False)):
+            if self._zet_keuze("radio", tekst, True, begin=begin):
+                return True
+        return False
+
+    def _vervoerder_tekst(self, naam):
+        """(tekst, begin) waarmee het vinkje van deze vervoerder te vinden is, of None."""
+        for begin in (True, False):
+            if self.driver.execute_script(self._JS_ZOEK_KEUZE, "checkbox", naam.lower(), begin) is not None:
+                return naam.lower(), begin
+        return None
+
+    def _stel_verzending_in(self, product):
+        """Vinkt de gekozen vervoerders aan (of uit) en kiest de pakketgrootte volgens het verzendadvies."""
+        from marktplaats_suite.verzending import VERVOERDERS
+        a = self._verzendadvies(product)
+        if not a:
+            self.logger.info("   ℹ️ Verzending: geen advies (afmetingen of gewicht ontbreken), handmatig instellen")
             return
-        klasse, passend = keuze["klasse"], keuze["vervoerders"]
-        # Een verzendkeuze bestaat alleen als de categorie vervoerders toont (niet bij alleen-Brenger)
-        if not self._zet_keuze("checkbox", "postnl", True, begin=True) and not self._zet_keuze("checkbox", "dhl", True, begin=True):
-            self.logger.info("   ℹ️ Verzending: deze categorie toont geen pakketvervoerders (bijv. alleen Brenger), overgeslagen")
+        zoek = {n: self._vervoerder_tekst(n) for n in VERVOERDERS}
+        aanwezig = {n for n, z in zoek.items() if z}
+        if not aanwezig:
+            if a["soort"] == "ophalen" and self._zet_keuze("radio", "ophalen", True, begin=True):
+                self.logger.info("   ✅ Levering: ophalen (geen van de gekozen vervoerders past)")
+            else:
+                self.logger.warning(f"   ⚠️ Geen vervoerders gevonden in het formulier: stel zelf in → {a['tekst']}")
             return
-        for naam in ("Budbee", "PostNL", "DHL"):
-            gewenst = naam in passend
-            if not self._zet_keuze("checkbox", naam.lower(), gewenst, begin=True):
-                continue
-        if self._zet_keuze("radio", klasse.lower(), True, begin=True):
-            self.logger.info(f"   ✅ Verzending: {klasse} via {', '.join(passend)}")
+        if a["soort"] == "pakket" and not aanwezig & {"Budbee", "DHL", "PostNL"}:
+            self.logger.warning(f"   ⚠️ Deze categorie toont geen pakketvervoerders (alleen {', '.join(sorted(aanwezig))}). "
+                                f"Advies: {a['tekst']}; kies zelf of kies een andere categorie")
+            return
+        mislukt = []
+        for naam in VERVOERDERS:
+            if naam in aanwezig:
+                tekst, begin = zoek[naam]
+                if self._zet_keuze("checkbox", tekst, naam in a["vervoerders"], begin=begin) is False:
+                    mislukt.append(naam)
+        if mislukt:
+            self.logger.warning(f"   ⚠️ Kon {', '.join(mislukt)} niet goed (uit)vinken: controleer de vervoerders")
+        if a["soort"] == "pakket":
+            if self._kies_pakketgrootte(a["klasse"]):
+                self.logger.info(f"   ✅ Verzending: {a['klasse']} via {', '.join(v for v in a['vervoerders'] if v in aanwezig)}")
+            else:
+                self.logger.warning(f"   ⚠️ Pakketgrootte niet automatisch gekozen: kies zelf '{a['klasse']}'")
+        elif a["soort"] == "brenger":
+            if "Brenger" in aanwezig:
+                self.logger.info("   ✅ Verzending: Brenger")
+            else:
+                self.logger.warning("   ⚠️ Brenger staat niet in dit formulier: kies zelf een verzendmethode of ophalen")
         else:
-            self.logger.warning(f"   ⚠️ Pakketgrootte '{klasse}' niet gevonden, handmatig kiezen")
+            if self._zet_keuze("radio", "ophalen", True, begin=True):
+                self.logger.info("   ✅ Levering: ophalen (geen van de gekozen vervoerders past)")
+            else:
+                self.logger.warning("   ⚠️ Geen van de gekozen vervoerders past: zet de levering zelf op ophalen")
 
     def process_one_product(self, product):
         """Plaatst het product op Marktplaats."""
@@ -855,6 +916,8 @@ class App:
             pass
         self.auto.on_vraag_logo = self._vraag_logo
         self.auto.on_controleer_categorie = self._controleer_categorie
+        self.auto.on_verzendadvies = lambda t: GLib.idle_add(
+            lambda: (self.upload_venster and self.upload_venster.zet_verzendadvies(t), False)[1])
         self.upload_venster = None
         self.na_upload = None       # bijv. Product Management verversen
         self.running = False
@@ -958,10 +1021,25 @@ class App:
             label="Verzending automatisch instellen (vervoerders en pakketgrootte op basis van afmetingen en gewicht)")
         grid.attach(self.auto_verzending_check, 0, 5, 4, 1)
 
+        grid.attach(lbl("Vervoerders:"), 0, 6, 1, 1)
+        vv_box = Gtk.Box(spacing=14)
+        self.vervoerder_checks = {}
+        from marktplaats_suite.verzending import VERVOERDERS
+        for naam in VERVOERDERS:
+            c = Gtk.CheckButton(label=naam)
+            c.connect("toggled", self._vervoerders_gewijzigd)
+            self.vervoerder_checks[naam] = c
+            vv_box.pack_start(c, False, False, 0)
+        vv_uitleg = Gtk.Label()
+        vv_uitleg.set_markup("<small><i>uitgevinkt = niet gebruiken; het advies kiest dan de eerstvolgende beste optie</i></small>")
+        vv_box.pack_start(vv_uitleg, False, False, 6)
+        grid.attach(vv_box, 1, 6, 3, 1)
+        self.op_vervoerders = None   # bijv. het verzendadvies in Nieuw Product verversen
+
         save_btn = Gtk.Button(label="💾 Opslaan")
         save_btn.set_halign(Gtk.Align.END)
         save_btn.connect("clicked", self._save_config)
-        grid.attach(save_btn, 3, 6, 1, 1)
+        grid.attach(save_btn, 3, 7, 1, 1)
 
         # --- log (ingeklapt) ---
         log_exp = Gtk.Expander(label="📝 Log van de laatste upload")
@@ -1018,6 +1096,30 @@ class App:
         self.max_title_entry.set_text(str(prefs.get('max_title_length', 60)))
         self.wait_products_entry.set_text(str(prefs.get('wait_between_products', 3)))
         self.auto_verzending_check.set_active(bool(prefs.get('auto_verzending', True)))
+        from marktplaats_suite.verzending import vervoerders_aan
+        aan = vervoerders_aan()
+        self._vervoerders_laden = True
+        for naam, c in self.vervoerder_checks.items():
+            c.set_active(bool(aan.get(naam, True)))
+        self._vervoerders_laden = False
+
+    def _vervoerders_gewijzigd(self, *_):
+        if getattr(self, "_vervoerders_laden", False):
+            return
+        from marktplaats_suite.verzending import bewaar_vervoerders
+        try:
+            bewaar_vervoerders({n: c.get_active() for n, c in self.vervoerder_checks.items()})
+        except Exception as e:
+            self.logger.warning(f"Vervoerders opslaan mislukt: {e}")
+            return
+        uit = [n for n, c in self.vervoerder_checks.items() if not c.get_active()]
+        self.status_label.set_markup("<span foreground='green'>✅ Vervoerders opgeslagen"
+                                     + (f" ({', '.join(uit)} uit)" if uit else "") + "</span>")
+        if self.op_vervoerders:
+            try:
+                self.op_vervoerders()
+            except Exception:
+                pass
 
     def _save_config(self, widget, stil=False):
         self.config.set('browser', self.browser_combo.get_active_id() or 'auto')
@@ -1272,6 +1374,12 @@ class UploadVenster(Gtk.Window):
         self.balk.set_show_text(True)
         self.balk.set_text(f"0 van {aantal}" if aantal else "")
         box.pack_start(self.balk, False, False, 0)
+        self.verzend = Gtk.Label()
+        self.verzend.set_xalign(0)
+        self.verzend.set_line_wrap(True)
+        self.verzend.set_max_width_chars(60)
+        self.verzend.set_no_show_all(True)
+        box.pack_start(self.verzend, False, False, 0)
         self.regel = Gtk.Label(label="Log in op Marktplaats in het browservenster en klik daarna op 'Ingelogd'.")
         self.regel.set_xalign(0)
         self.regel.set_line_wrap(True)
@@ -1335,6 +1443,10 @@ class UploadVenster(Gtk.Window):
 
     def zet_status(self, msg):
         self.status.set_markup(f"<b>{GLib.markup_escape_text(msg)}</b>")
+
+    def zet_verzendadvies(self, tekst):
+        self.verzend.set_markup(f"📦 <b>Verzending:</b> {GLib.markup_escape_text(tekst)}")
+        self.verzend.show()
 
     def zet_knoppen(self, ingelogd=None, volgende=None):
         if ingelogd is not None:

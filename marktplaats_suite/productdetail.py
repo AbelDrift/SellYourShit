@@ -126,6 +126,20 @@ class ProductDetailVenster(Gtk.Window):
             grid.attach(l, 0, rij, 1, 1)
             grid.attach(w, 1, rij, 1, 1)
             rij += 1
+        try:
+            from marktplaats_suite.verzending import advies
+            adv = advies(product.get("lengte"), product.get("breedte"), product.get("hoogte"), product.get("gewicht"))
+        except Exception:
+            adv = None
+        if adv:
+            l = Gtk.Label(label="Verzendadvies", xalign=0)
+            l.get_style_context().add_class("dim-label")
+            w = Gtk.Label(label=adv["tekst"], xalign=0)
+            w.set_selectable(True)
+            w.set_line_wrap(True)
+            grid.attach(l, 0, rij, 1, 1)
+            grid.attach(w, 1, rij, 1, 1)
+            rij += 1
         sw2 = Gtk.ScrolledWindow()
         sw2.add(grid)
         nb.append_page(sw2, Gtk.Label(label="Gegevens"))

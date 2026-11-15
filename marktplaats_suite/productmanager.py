@@ -5292,6 +5292,7 @@ class MainWindow(Gtk.Window):
             from marktplaats_suite.automater import App as AutomaterApp
             self.automater_app = AutomaterApp()
             self.automater_app.na_upload = self.overzicht_tab.herlaad
+            self.automater_app.op_vervoerders = self.registreer_tab._update_verzendadvies
             self.notebook.append_page(self.automater_app.window, Gtk.Label(label="🤖 Product Uploader"))
         except (Exception, SystemExit) as e:
             self._voeg_foutmelding_tab_toe("🤖 Product Uploader", e)

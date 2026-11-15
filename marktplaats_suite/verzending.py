@@ -30,7 +30,11 @@ STANDAARD_TABEL = [
     ["Groot pakket", "PostNL", "thuis", 23, [50, 50, 40], 8.49],
 ]
 
+VERVOERDERS = ["Budbee", "DHL", "PostNL", "Brenger"]   # zoals Marktplaats ze aanbiedt
+
 STANDAARD_INSTELLINGEN = {
+    # welke vervoerders je wilt gebruiken; uit = het advies kiest de eerstvolgende beste optie
+    "vervoerders_aan": {"Budbee": True, "DHL": True, "PostNL": True, "Brenger": True},
     # extra cm per afmeting en extra kg voor verpakkingsmateriaal
     "verpakkingsmarge_cm": 2,
     "verpakkingsgewicht_kg": 0.3,
@@ -53,6 +57,25 @@ def laad_instellingen():
     except Exception:
         pass
     return data
+
+
+def vervoerders_aan(instellingen=None):
+    ins = instellingen or laad_instellingen()
+    aan = dict(STANDAARD_INSTELLINGEN["vervoerders_aan"])
+    aan.update(ins.get("vervoerders_aan") or {})
+    return aan
+
+
+def bewaar_vervoerders(aan):
+    """Slaat op welke vervoerders aan staan (in verzendtabel.json, de rest blijft zoals het is)."""
+    try:
+        with open(_pad(), encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        data = json.loads(json.dumps(STANDAARD_INSTELLINGEN))
+    data["vervoerders_aan"] = {v: bool(aan.get(v, True)) for v in VERVOERDERS}
+    with open(_pad(), "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
 
 
 def sla_standaard_op_als_nodig():
@@ -81,8 +104,11 @@ def verzendadvies(lengte, breedte, hoogte, gewicht, instellingen=None):
     marge = float(ins["verpakkingsmarge_cm"])
     product = sorted((l + marge, b + marge, h + marge), reverse=True)
     kg_totaal = kg + float(ins["verpakkingsgewicht_kg"])
+    aan = vervoerders_aan(ins)
     opties = []
     for klasse, vervoerder, variant, max_kg, afm, prijs in ins["tabel"]:
+        if not aan.get(vervoerder, True):
+            continue   # vervoerder staat uit
         limiet = sorted(afm, reverse=True)
         if kg_totaal <= max_kg and all(p <= m for p, m in zip(product, limiet)):
             opties.append({"klasse": klasse, "vervoerder": vervoerder, "variant": variant, "prijs": prijs})
@@ -95,30 +121,60 @@ def past_in_pakket(lengte, breedte, hoogte, gewicht, instellingen=None):
     return bool(adv)
 
 
+def _euro(x):
+    return f"€{x:.2f}".replace(".", ",")
+
+
+def advies(lengte, breedte, hoogte, gewicht, instellingen=None):
+    """Het verzendadvies met alleen de vervoerders die aan staan.
+
+    None als afmetingen of gewicht ontbreken, anders een dict met:
+      soort        "pakket", "brenger" of "ophalen"
+      klasse       pakketklasse (alleen bij pakket), bijv. "Klein pakket"
+      vervoerders  aan te vinken vervoerders op Marktplaats
+      goedkoopst   goedkoopste optie (klasse, vervoerder, variant, prijs) of None
+      uit          vervoerders die uit staan
+      tekst        korte omschrijving voor het formulier en de log
+    """
+    ins = instellingen or laad_instellingen()
+    opties = verzendadvies(lengte, breedte, hoogte, gewicht, ins)
+    if opties is None:
+        return None
+    aan = vervoerders_aan(ins)
+    uit = [v for v in VERVOERDERS if not aan.get(v, True)]
+    if opties:
+        g = opties[0]
+        klasse = g["klasse"]
+        vervoerders = []
+        for o in opties:
+            if o["klasse"] == klasse and o["vervoerder"] not in vervoerders:
+                vervoerders.append(o["vervoerder"])
+        tekst = (f"{klasse} via {', '.join(vervoerders)} "
+                 f"(goedkoopst: {g['vervoerder']} {g['variant']} {_euro(g['prijs'])})")
+        return {"soort": "pakket", "klasse": klasse, "vervoerders": vervoerders, "goedkoopst": g,
+                "uit": uit, "tekst": tekst}
+    alles_aan = dict(ins, vervoerders_aan={v: True for v in VERVOERDERS})
+    zou_passen = bool(verzendadvies(lengte, breedte, hoogte, gewicht, alles_aan))
+    waarom = "past niet in een pakket" + (" van de gekozen vervoerders" if zou_passen else "")
+    if aan.get("Brenger", True):
+        return {"soort": "brenger", "klasse": None, "vervoerders": ["Brenger"], "goedkoopst": None,
+                "uit": uit, "tekst": f"Brenger ({waarom})"}
+    return {"soort": "ophalen", "klasse": None, "vervoerders": [], "goedkoopst": None, "uit": uit,
+            "tekst": f"alleen ophalen ({waarom} en Brenger staat uit)"}
+
+
 def advies_tekst(lengte, breedte, hoogte, gewicht, mp_categorie="", instellingen=None):
     """Korte tekst voor in het formulier. Lege string als er niets te melden is."""
     ins = instellingen or laad_instellingen()
-    adv = verzendadvies(lengte, breedte, hoogte, gewicht, ins)
-    if adv is None:
+    a = advies(lengte, breedte, hoogte, gewicht, ins)
+    if a is None:
         return ""
-    regels = []
-    if adv:
-        goedkoopst = adv[0]
-        per_klasse = {}
-        for o in adv:
-            per_klasse.setdefault(o["klasse"], []).append(o)
-        kleinste = list(per_klasse)[0]
-        prijs = f"{goedkoopst['prijs']:.2f}".replace(".", ",")
-        regels.append(
-            f"📦 Past in een pakket. Goedkoopst: {goedkoopst['vervoerder']} {goedkoopst['klasse'].lower()} "
-            f"({goedkoopst['variant']}) €{prijs}"
-        )
-        vervoerders = sorted({o["vervoerder"] for o in per_klasse[list(per_klasse)[0]]})
-        regels.append(f"   Kleinste klasse die past: {kleinste} bij {', '.join(vervoerders)}")
-    else:
-        regels.append("🚚 Past niet in een standaardpakket: kies een categorie met Brenger/eigen verzending.")
+    icoon = "📦" if a["soort"] == "pakket" else "🚚"
+    regels = [f"{icoon} Verzendadvies: {a['tekst']}"]
+    if a["uit"]:
+        regels.append(f"   Staat uit: {', '.join(a['uit'])} (aanpassen in 🤖 Product Uploader)")
     cat = (mp_categorie or "").lower()
-    if adv and cat and any(k in cat for k in ins["brenger_categorieen"]):
+    if a["soort"] == "pakket" and cat and any(k in cat for k in ins["brenger_categorieen"]):
         alt = " of ".join(ins["alternatieve_categorieen"])
         regels.append(f"⚠️ In de categorie '{mp_categorie}' toont Marktplaats alleen Brenger. "
                       f"Dit product past in een pakket: overweeg {alt}.")
@@ -126,13 +182,5 @@ def advies_tekst(lengte, breedte, hoogte, gewicht, mp_categorie="", instellingen
 
 
 def kies_automatisch(lengte, breedte, hoogte, gewicht, instellingen=None):
-    """Voor de Automater: {"klasse": ..., "vervoerders": [...]} of None (Brenger/handmatig)."""
-    adv = verzendadvies(lengte, breedte, hoogte, gewicht, instellingen)
-    if not adv:
-        return None
-    klasse = adv[0]["klasse"]
-    vervoerders = []
-    for o in adv:
-        if o["klasse"] == klasse and o["vervoerder"] not in vervoerders:
-            vervoerders.append(o["vervoerder"])
-    return {"klasse": klasse, "vervoerders": vervoerders}
+    """Voor de Uploader: hetzelfde als advies() (None als afmetingen of gewicht ontbreken)."""
+    return advies(lengte, breedte, hoogte, gewicht, instellingen)

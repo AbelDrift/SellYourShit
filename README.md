@@ -62,8 +62,15 @@ naar die map; de fotomanager-instellingen heten nu `fotomanager_config.json`
   `verzendtabel.json` in de datamap en zijn aanpasbaar.
 - Het veld **Marktplaats-categorie** bepaalt welke suggestie de Automater kiest (anders de eerste). Je krijgt
   een waarschuwing als de gekozen categorie alleen Brenger toont terwijl het product in een pakket past.
-- De **Automater** vinkt passende vervoerders aan en kiest de pakketgrootte (uit te zetten in zijn voorkeuren).
-  Dit is experimenteel: controleer de advertentie altijd voor je op "Plaats advertentie" klikt.
+- In **🤖 Product Uploader** kies je welke vervoerders je wilt gebruiken: **Budbee, DHL, PostNL en Brenger**.
+  Een uitgevinkte vervoerder telt niet mee; het advies kiest dan de eerstvolgende beste optie (goedkoopste
+  passende pakket bij de overige vervoerders, anders Brenger, anders alleen ophalen).
+- Bij het uploaden staat het **verzendadvies** van elk product in de log en in het voortgangsvenster
+  (bijv. "Klein pakket via DHL, PostNL"), zodat je het kunt controleren of zelf kunt kiezen als het
+  automatisch kiezen niet lukt. Het staat ook in het detailvenster (dubbelklik in Product Management).
+- De **Uploader** vinkt de geadviseerde vervoerders aan, de andere uit, en kiest de pakketgrootte (uit te
+  zetten in zijn instellingen). Lukt een vinkje niet via het vakje zelf, dan probeert hij het via het label.
+  Controleer de advertentie altijd voor je op "Plaats advertentie" klikt.
 - Alle onderdelen delen één kolomlijst voor `producten.xml`; de Scanner past bij "verkocht" alleen dat ene
   product aan en wist geen velden van andere onderdelen meer.
 
