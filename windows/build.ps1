@@ -85,6 +85,9 @@ foreach ($weg in "torch\include", "torch\share\cmake", "torch\test", "caffe2") {
     if (Test-Path "$sp\$weg") { Remove-Item -Recurse -Force "$sp\$weg" }
 }
 Get-ChildItem "$sp\torch\lib\*.lib" -ErrorAction SilentlyContinue | Remove-Item -Force
+foreach ($weg in "linux", "macos") {     # selenium-manager voor andere besturingssystemen
+    if (Test-Path "$sp\selenium\webdriver\common\$weg") { Remove-Item -Recurse -Force "$sp\selenium\webdriver\common\$weg" }
+}
 
 # ---- 6. Model voor het weghalen van de achtergrond (anders downloadt de app het de eerste keer) ----
 Stap "Model transparent-background"

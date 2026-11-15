@@ -28,10 +28,34 @@ def controleer(voorwaarde, tekst):
         fouten.append(tekst)
 
 
-def schermafdruk(naam):
+def in_log(naam, data):
+    """Bestand als base64 in de log: artefacten zijn niet overal te downloaden, de log wel."""
+    import base64
+    b = base64.b64encode(data).decode()
+    print(f"BEGIN-BESTAND {naam}", flush=True)
+    for i in range(0, len(b), 4000):
+        print(b[i:i + 4000])
+    print("EINDE-BESTAND", flush=True)
+
+
+def schermafdruk(naam, venster=None):
     try:
-        from PIL import ImageGrab
-        ImageGrab.grab().save(os.path.join(UIT, naam))
+        import io
+        from PIL import Image, ImageGrab
+        pad = os.path.join(UIT, naam)
+        if venster is not None:
+            from gi.repository import Gdk
+            gw = venster.get_window()
+            pb = Gdk.pixbuf_get_from_window(gw, 0, 0, gw.get_width(), gw.get_height())
+            pb.savev(pad, "png", [], [])
+        else:
+            ImageGrab.grab().save(pad)
+        with Image.open(pad) as im:
+            klein = im.convert("RGB")
+        klein.thumbnail((1280, 1280))
+        buf = io.BytesIO()
+        klein.save(buf, "JPEG", quality=72)
+        in_log(os.path.splitext(naam)[0] + ".jpg", buf.getvalue())
         print(f"   schermafdruk {naam}", flush=True)
     except Exception as e:
         print(f"   (geen schermafdruk: {e})", flush=True)
@@ -49,6 +73,24 @@ try:
     if sys.platform == "win32":
         controleer(os.path.exists(os.environ.get("GDK_PIXBUF_MODULE_FILE", "")), "lijst met beeldformaten aangemaakt")
         controleer(os.path.isfile(os.environ.get("SELLYOURSHIT_TB_CKPT", "")), "meegeleverd model gevonden")
+
+    stap("lettertypen")
+    gi.require_version("PangoCairo", "1.0")
+    from gi.repository import Pango, PangoCairo
+    fm = PangoCairo.FontMap.get_default()
+    fams = sorted(f.get_name() for f in fm.list_families())
+    print(f"   {type(fm).__name__}: {len(fams)} families, o.a.",
+          [f for f in fams if f.startswith(("Segoe", "Consolas", "Arial", "Courier"))][:14], flush=True)
+    print("   GTK-lettertype:", Gtk.Settings.get_default().props.gtk_font_name, flush=True)
+    ctx = fm.create_context()
+    for tekst, font in (("Nieuw Product", "Sans 10"), ("\U0001F4DD Nieuw Product \U0001F680 \u2705 \U0001F4E6", "Sans 10"),
+                        ("log 12:00 INFO", "Monospace 9"), ("gewone tekst", "Segoe UI 9")):
+        print(f"   test {font!r} {tekst!r} ...", flush=True)
+        lay = Pango.Layout.new(ctx)
+        lay.set_font_description(Pango.FontDescription(font))
+        lay.set_text(tekst, -1)
+        onbekend = lay.get_unknown_glyphs_count()
+        controleer(onbekend == 0, f"{font!r}: alle tekens hebben een lettertype ({onbekend} onbekend)")
 
     def tik(n=10):
         for _ in range(n):
@@ -72,9 +114,10 @@ try:
     w = pm.MainWindow("test", um)
     w.resize(1300, 850)
     w.show_all()
+    w.move(0, 0)
     tik(20)
     controleer(w.automater_app is not None, "Product Uploader geladen")
-    schermafdruk("1_nieuw_product.png")
+    schermafdruk("1_nieuw_product.png", w)
 
     stap("foto's toevoegen en verwerken (transparent-background op de processor)")
     from PIL import Image, ImageDraw
@@ -103,7 +146,7 @@ try:
             alfa = im.getchannel("A").getextrema()
         controleer(im.mode == "RGBA" and alfa[0] <= 10 and alfa[1] >= 245,
                    f"transparante PNG met doorzichtige en dichte delen ({im.mode}, alfa {alfa})")
-    schermafdruk("2_na_verwerken.png")
+    schermafdruk("2_na_verwerken.png", w)
 
     stap("product registreren en productvenster")
     t.titel_entry.set_text("Testbeeldje Windows")
@@ -121,15 +164,29 @@ try:
         map_ = pm.vind_product_map(nr, o.config)
         controleer(os.path.isdir(os.path.join(map_, "transparant")), f"productmap met fotoversies: {map_}")
         controleer(any(f.endswith("_barcode.png") for f in os.listdir(map_)), "barcode gemaakt")
+        w.notebook.set_current_page(1)
+        tik(10)
+        schermafdruk("3_product_management.png", w)
         o._open_detail(nr)
         tik(20)
-        schermafdruk("3_productvenster.png")
+        det = [x for x in Gtk.Window.list_toplevels() if x.get_visible() and x is not w and (x.get_title() or "").startswith(nr)]
+        controleer(bool(det), "productvenster geopend")
+        if det:
+            det[0].move(0, 0)
+            tik(10)
+            schermafdruk("4_productvenster.png", det[0])
+            det[0].destroy()
+            tik(5)
+        if w.automater_app is not None:
+            w.notebook.set_current_page(2)
+            tik(10)
+            schermafdruk("5_product_uploader.png", w)
 
     stap("printers (Windows)")
     printers = pm.get_cups_printers()
     print("   gevonden:", printers, flush=True)
-    controleer(isinstance(printers, list), "printerlijst opgehaald")
     testprinter = os.environ.get("SYS_TESTPRINTER")
+    controleer(isinstance(printers, list) and (not testprinter or testprinter in printers), "printerlijst opgehaald")
     if testprinter and len(o.store):
         barcode = next(os.path.join(map_, f) for f in os.listdir(map_) if f.endswith("_barcode.png"))
         pm.print_barcode(barcode, {"print_method": "cups", "printer_name": testprinter}, False)
@@ -140,6 +197,9 @@ try:
             time.sleep(0.2)
         controleer(os.path.exists(uitvoer) and os.path.getsize(uitvoer) > 1000,
                    f"barcode geprint naar {testprinter} ({os.path.getsize(uitvoer) if os.path.exists(uitvoer) else 0} bytes)")
+        if os.path.exists(uitvoer):
+            time.sleep(1)
+            in_log("barcode_print.pdf", open(uitvoer, "rb").read())
 
     stap("overige onderdelen")
     from marktplaats_suite import ai, advertentie, verzending, common

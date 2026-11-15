@@ -702,10 +702,13 @@ def get_cups_printers():
             import win32print
             flags = win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS
             namen = [p[2] for p in win32print.EnumPrinters(flags)]
-            standaard = win32print.GetDefaultPrinter()
-            return sorted(namen, key=lambda n: (n != standaard, n.lower()))
         except Exception:
             return []
+        try:
+            standaard = win32print.GetDefaultPrinter()
+        except Exception:      # geen standaardprinter ingesteld
+            standaard = None
+        return sorted(namen, key=lambda n: (n != standaard, n.lower()))
     try:
         result = subprocess.run(["lpstat", "-p"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=5)
         printers = []
@@ -776,10 +779,29 @@ def maak_product_map(config, product):
     return folder, bestond_al
 
 
+class _EenvoudigeTekstLayout:
+    """Voor python-barcode: ImageFont, maar truetype() altijd met de eenvoudige layout (geen raqm).
+
+    Met de Pillow-wheels op Linux tekent raqm soms een gigantisch tekstmasker zodra GTK (met de
+    HarfBuzz van het systeem) al geladen is: een DecompressionBombWarning of zelfs een fout bij het
+    maken van de barcode. Voor een artikelnummer is de eenvoudige layout precies goed."""
+
+    def __init__(self, image_font):
+        self._if = image_font
+
+    def __getattr__(self, naam):
+        return getattr(self._if, naam)
+
+    def truetype(self, *args, **kwargs):
+        kwargs.setdefault("layout_engine", self._if.Layout.BASIC)
+        return self._if.truetype(*args, **kwargs)
+
+
 def genereer_barcode(artikelnummer, output_folder, barcode_config=None, count_label=None):
     """Genereert een Code128-barcode-afbeelding met het artikelnummer."""
     try:
         import barcode
+        import barcode.writer
         from barcode.writer import ImageWriter
         from PIL import Image, ImageDraw, ImageFont
     except ImportError:
@@ -787,6 +809,8 @@ def genereer_barcode(artikelnummer, output_folder, barcode_config=None, count_la
             "python-barcode of PIL is niet geïnstalleerd. Installeer met:\n"
             "pip install python-barcode pillow --break-system-packages"
         )
+    if not isinstance(barcode.writer.ImageFont, _EenvoudigeTekstLayout):
+        barcode.writer.ImageFont = _EenvoudigeTekstLayout(ImageFont)
 
     # FIX: Zorg dat ANTIALIAS bestaat voor compatibiliteit
     if not hasattr(Image, "ANTIALIAS"):
@@ -812,7 +836,7 @@ def genereer_barcode(artikelnummer, output_folder, barcode_config=None, count_la
             draw = ImageDraw.Draw(img)
 
             try:
-                font = ImageFont.truetype(lettertype_vet(), 20)
+                font = ImageFont.truetype(lettertype_vet(), 20, layout_engine=ImageFont.Layout.BASIC)
             except Exception:
                 font = ImageFont.load_default()
 
@@ -856,7 +880,13 @@ def _print_barcode_windows(image_path, printer_name):
     import win32print
     import win32ui
     from PIL import Image, ImageWin
-    naam = printer_name or win32print.GetDefaultPrinter()
+    naam = printer_name
+    if not naam:
+        try:
+            naam = win32print.GetDefaultPrinter()
+        except Exception:
+            raise RuntimeError("Er is geen printer gekozen en Windows heeft geen standaardprinter. "
+                               "Kies een printer bij Instellingen.")
     with Image.open(image_path) as bron:
         im = bron.convert("RGB")
         bron_dpi = (bron.info.get("dpi") or (300, 300))[0] or 300
@@ -1539,7 +1569,7 @@ class SettingsDialog(Gtk.Dialog):
             method_row.pack_start(Gtk.Label(label="Methode:"), False, False, 0)
             self.print_method_combo = Gtk.ComboBoxText()
             self.print_method_combo.append("cups", "Windows-printer" if IS_WINDOWS else "CUPS (lp)")
-            self.print_method_combo.append("brother_ql", "Brother QL")
+            self.print_method_combo.append("brother_ql", "Brother QL (direct via netwerk)" if IS_WINDOWS else "Brother QL")
             self.print_method_combo.set_active_id(printer_cfg.get("print_method", "cups"))
             self.print_method_combo.connect("changed", self._on_print_method_changed)
             method_row.pack_start(self.print_method_combo, False, False, 0)
@@ -1564,6 +1594,13 @@ class SettingsDialog(Gtk.Dialog):
             printer_row.pack_start(refresh_btn, False, False, 0)
 
             self.cups_box.pack_start(printer_row, False, False, 0)
+            if IS_WINDOWS:
+                tip = Gtk.Label(xalign=0)
+                tip.set_line_wrap(True)
+                tip.set_markup("<small><i>Etiketprinter (bijv. Brother QL of DYMO)? Installeer de Windows-driver en kies "
+                               "hem hier. Het etiketformaat stel je in bij de printerinstellingen van Windows; de "
+                               "barcode wordt op ware grootte geprint en zo nodig passend gemaakt.</i></small>")
+                self.cups_box.pack_start(tip, False, False, 0)
 
             self.brother_ql_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
             main_box.pack_start(self.brother_ql_box, False, False, 0)
@@ -1583,10 +1620,10 @@ class SettingsDialog(Gtk.Dialog):
             self.bq_label_entry.set_text(printer_cfg.get("brother_ql_label", "62"))
             bq_grid.attach(self.bq_label_entry, 1, 1, 1, 1)
 
-            bq_grid.attach(Gtk.Label(label="USB-identifier:", xalign=0), 0, 2, 1, 1)
+            bq_grid.attach(Gtk.Label(label="Printeradres:" if IS_WINDOWS else "USB-identifier:", xalign=0), 0, 2, 1, 1)
             self.bq_identifier_entry = Gtk.Entry()
             self.bq_identifier_entry.set_text(printer_cfg.get("brother_ql_identifier", ""))
-            self.bq_identifier_entry.set_placeholder_text("bijv. usb://0x04f9:0x2015")
+            self.bq_identifier_entry.set_placeholder_text("bijv. tcp://192.168.1.50" if IS_WINDOWS else "bijv. usb://0x04f9:0x2015")
             bq_grid.attach(self.bq_identifier_entry, 1, 2, 1, 1)
 
             self._on_print_method_changed(self.print_method_combo)

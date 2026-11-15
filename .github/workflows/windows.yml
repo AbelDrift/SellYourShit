@@ -29,6 +29,11 @@ jobs:
         shell: pwsh
         run: windows\build.ps1
 
+      - name: Schermresolutie 1920x1080
+        shell: pwsh
+        continue-on-error: true
+        run: Set-DisplayResolution -Width 1920 -Height 1080 -Force
+
       - name: Testprinter (Microsoft Print to PDF naar een bestand)
         shell: pwsh
         run: |
