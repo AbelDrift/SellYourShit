@@ -44,10 +44,16 @@ def schermafdruk(naam, venster=None):
         from PIL import Image, ImageGrab
         pad = os.path.join(UIT, naam)
         if venster is not None:
-            from gi.repository import Gdk
-            gw = venster.get_window()
-            pb = Gdk.pixbuf_get_from_window(gw, 0, 0, gw.get_width(), gw.get_height())
-            pb.savev(pad, "png", [], [])
+            # het venster zelf laten tekenen: werkt overal (een kopie van het scherm is op Windows zwart)
+            import cairo
+            b, h = venster.get_allocated_width(), venster.get_allocated_height()
+            opp = cairo.ImageSurface(cairo.FORMAT_ARGB32, b, h)
+            cr = cairo.Context(opp)
+            cr.set_source_rgb(1, 1, 1)
+            cr.paint()
+            venster.draw(cr)
+            opp.flush()
+            opp.write_to_png(pad)
         else:
             ImageGrab.grab().save(pad)
         with Image.open(pad) as im:
@@ -117,6 +123,7 @@ try:
     w.move(0, 0)
     tik(20)
     controleer(w.automater_app is not None, "Product Uploader geladen")
+    schermafdruk("0_scherm.png")
     schermafdruk("1_nieuw_product.png", w)
 
     stap("foto's toevoegen en verwerken (transparent-background op de processor)")
