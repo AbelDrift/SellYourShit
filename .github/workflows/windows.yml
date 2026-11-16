@@ -1,8 +1,7 @@
 name: Windows-installatieprogramma
 
 on:
-  push:
-    branches: [main, windows-build]
+  push:            # elke branch: bouwen en testen; alleen main publiceert een release
     paths-ignore: ["README.md"]
   workflow_dispatch:
 
