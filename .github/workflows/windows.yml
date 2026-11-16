@@ -48,7 +48,7 @@ jobs:
       - name: Testen (programmamap)
         shell: pwsh
         run: |
-          & dist\SellYourShit\python\python.exe windows\test_windows.py dist\SellYourShit testuitvoer
+          & dist\SellYourShit\python\python.exe -X utf8 windows\test_windows.py dist\SellYourShit testuitvoer
           if ($LASTEXITCODE -ne 0) { throw "test mislukt" }
 
       - name: Installatieprogramma testen (stil installeren en starten)
@@ -58,9 +58,40 @@ jobs:
           Start-Process -Wait -FilePath $setup -ArgumentList "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CURRENTUSER"
           $app = "$env:LOCALAPPDATA\Programs\SellYourShit"
           if (-not (Test-Path "$app\start_sellyourshit.pyw")) { throw "niet geïnstalleerd" }
-          & "$app\python\python.exe" -c "import sys; sys.path.insert(0, r'$app'); import start_sellyourshit as s; s.omgeving(); import gi; gi.require_version('Gtk','3.0'); from gi.repository import Gtk; import marktplaats_suite.productmanager; print('geinstalleerde app laadt, GTK', Gtk.get_major_version())"
+          & "$app\python\python.exe" -X utf8 -c "import sys; sys.path.insert(0, r'$app'); import start_sellyourshit as s; s.omgeving(); import gi; gi.require_version('Gtk','3.0'); from gi.repository import Gtk; import marktplaats_suite.productmanager; print('geinstalleerde app laadt, GTK', Gtk.get_major_version())"
           if ($LASTEXITCODE -ne 0) { throw "geïnstalleerde app laadt niet" }
-          Get-ChildItem "$env:APPDATA\Microsoft\Windows\Start Menu\Programs" -Filter "SellYourShit*" | Select-Object Name
+          $lnk = Get-ChildItem "$env:APPDATA\Microsoft\Windows\Start Menu\Programs" -Filter "SellYourShit*.lnk" | Select-Object -First 1
+          if (-not $lnk) { throw "geen snelkoppeling in het Startmenu" }
+          $sc = (New-Object -ComObject WScript.Shell).CreateShortcut($lnk.FullName)
+          "snelkoppeling: " + $sc.TargetPath + " " + $sc.Arguments
+          if ($sc.Arguments -notlike "-X utf8 *") { throw "snelkoppeling start niet in UTF-8-modus" }
+
+      - name: Geïnstalleerde app echt starten
+        shell: pwsh
+        run: |
+          $app = "$env:LOCALAPPDATA\Programs\SellYourShit"
+          $log = "$env:LOCALAPPDATA\SellYourShit\sellyourshit.log"
+          Remove-Item $log -ErrorAction SilentlyContinue
+          # bewust zonder -X utf8: de starter moet zichzelf dan in UTF-8-modus opnieuw starten
+          Start-Process "$app\python\pythonw.exe" -ArgumentList "`"$app\start_sellyourshit.pyw`""
+          Start-Sleep 35
+          $p = Get-Process pythonw -ErrorAction SilentlyContinue
+          "pythonw-processen: " + ($p | Measure-Object).Count
+          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+          $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+          $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
+          [System.Drawing.Graphics]::FromImage($bmp).CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
+          $klein = New-Object System.Drawing.Bitmap $bmp, ([int]($b.Width * 2 / 3)), ([int]($b.Height * 2 / 3))
+          $ms = New-Object System.IO.MemoryStream
+          $klein.Save($ms, [System.Drawing.Imaging.ImageFormat]::Jpeg)
+          "BEGIN-BESTAND echte_start.jpg"
+          $b64 = [Convert]::ToBase64String($ms.ToArray())
+          for ($i = 0; $i -lt $b64.Length; $i += 4000) { $b64.Substring($i, [Math]::Min(4000, $b64.Length - $i)) }
+          "EINDE-BESTAND"
+          if (Test-Path $log) { "--- log:"; Get-Content $log -Tail 30 }
+          if (-not $p) { throw "de app draait niet" }
+          if ((Test-Path $log) -and (Select-String -Path $log -Pattern "Traceback" -Quiet)) { throw "fout bij het starten" }
+          $p | Stop-Process -Force
 
       - name: Testuitvoer bewaren
         if: always()

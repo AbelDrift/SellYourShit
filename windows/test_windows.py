@@ -11,6 +11,11 @@ import tempfile
 import time
 import traceback
 
+for stroom in (sys.stdout, sys.stderr):
+    try:
+        stroom.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
 PROG = os.path.abspath(sys.argv[1])
 UIT = os.path.abspath(sys.argv[2])
 os.makedirs(UIT, exist_ok=True)
@@ -70,6 +75,8 @@ def schermafdruk(naam, venster=None):
 
 try:
     stap("omgeving")
+    if sys.platform == "win32":
+        controleer(sys.flags.utf8_mode == 1, "Python draait in UTF-8-modus (zoals de snelkoppelingen)")
     if sys.platform == "win32":
         import start_sellyourshit as starter
         starter.omgeving()

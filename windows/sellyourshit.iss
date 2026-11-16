@@ -44,11 +44,11 @@ Type: filesandordirs; Name: "{app}\modellen"
 Source: "{#BronMap}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{autoprograms}\SellYourShit"; Filename: "{app}\python\pythonw.exe"; Parameters: """{app}\start_sellyourshit.pyw"""; WorkingDir: "{app}"; IconFilename: "{app}\sellyourshit.ico"; AppUserModelID: "HerNieuw.SellYourShit"
-Name: "{autodesktop}\SellYourShit"; Filename: "{app}\python\pythonw.exe"; Parameters: """{app}\start_sellyourshit.pyw"""; WorkingDir: "{app}"; IconFilename: "{app}\sellyourshit.ico"; AppUserModelID: "HerNieuw.SellYourShit"; Tasks: desktopicon
+Name: "{autoprograms}\SellYourShit"; Filename: "{app}\python\pythonw.exe"; Parameters: "-X utf8 ""{app}\start_sellyourshit.pyw"""; WorkingDir: "{app}"; IconFilename: "{app}\sellyourshit.ico"; AppUserModelID: "HerNieuw.SellYourShit"
+Name: "{autodesktop}\SellYourShit"; Filename: "{app}\python\pythonw.exe"; Parameters: "-X utf8 ""{app}\start_sellyourshit.pyw"""; WorkingDir: "{app}"; IconFilename: "{app}\sellyourshit.ico"; AppUserModelID: "HerNieuw.SellYourShit"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\python\pythonw.exe"; Parameters: """{app}\start_sellyourshit.pyw"""; WorkingDir: "{app}"; Description: "{cm:LaunchProgram,SellYourShit}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\python\pythonw.exe"; Parameters: "-X utf8 ""{app}\start_sellyourshit.pyw"""; WorkingDir: "{app}"; Description: "{cm:LaunchProgram,SellYourShit}"; Flags: nowait postinstall skipifsilent
 
 [UninstallDelete]
 ; ook de bestanden die Python later zelf aanmaakt (__pycache__); je gegevens in AppData blijven staan

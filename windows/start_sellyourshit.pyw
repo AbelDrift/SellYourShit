@@ -70,6 +70,12 @@ def melding(tekst):
 
 
 def start():
+    # Overal UTF-8 (bestanden, advertentieteksten met emoji): Python 3.14 gebruikt op Windows anders
+    # de Windows-codetabel. De snelkoppelingen starten met -X utf8; anders start de app zichzelf zo.
+    if not sys.flags.utf8_mode:
+        subprocess.Popen([sys.executable, "-X", "utf8", os.path.abspath(__file__)] + sys.argv[1:],
+                         close_fds=True)
+        return
     os.makedirs(LOKAAL, exist_ok=True)
     log = open(os.path.join(LOKAAL, "sellyourshit.log"), "w", encoding="utf-8", buffering=1)
     sys.stdout = sys.stderr = log
