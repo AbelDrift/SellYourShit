@@ -4,10 +4,15 @@
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"   # maakt Invoke-WebRequest veel sneller
 
-$GtkVersie = "2026.10.0"      # gvsbuild: GTK3 met PyGObject-wheels voor Python 3.15
-$PyVersie  = "3.15.2"         # officiële Python van NuGet (verplaatsbaar)
+# gvsbuild 2026.8.0 heeft PyGObject-wheels voor Python 3.14. Daarvoor bestaan van alle onderdelen
+# Windows-wheels (onder meer onnxruntime voor AlphaMaker); voor Python 3.15 nog niet.
+$GtkVersie = "2026.8.0"
+$PyReeks   = "3.14"           # officiële Python van NuGet (verplaatsbaar): nieuwste 3.14.x
 $ModelUrl  = "https://github.com/plemeri/transparent-background/releases/download/1.2.12/ckpt_base.pth"
 $ModelMd5  = "d692e3dd5fa1b9658949d452bebf1cda"
+# AlphaMaker licht: IS-Net general (Apache-2.0), zelfde bestand dat AlphaMaker anders zelf downloadt
+$IsnetUrl  = "https://github.com/danielgatis/rembg/releases/download/v0.0.0/isnet-general-use.onnx"
+$IsnetSha  = "60920e99c45464f2ba57bee2ad08c919a52bbf852739e96947fbb4358c0d964a"
 
 $root   = (Resolve-Path "$PSScriptRoot\..").Path
 $cache  = Join-Path $root "cache"
@@ -29,7 +34,7 @@ $gtkZip = Join-Path $cache "GTK3_Gvsbuild_${GtkVersie}_x64.zip"
 if (-not (Test-Path $gtkZip)) {
     Invoke-WebRequest "https://github.com/wingtk/gvsbuild/releases/download/$GtkVersie/GTK3_Gvsbuild_${GtkVersie}_x64.zip" -OutFile $gtkZip
 }
-$gv = Join-Path $cache "gtk-volledig"
+$gv = Join-Path $cache "gtk-$GtkVersie"
 if (-not (Test-Path "$gv\bin")) { Expand-Archive $gtkZip -DestinationPath $gv -Force }
 $gtk = Join-Path $dist "gtk"
 New-Item -ItemType Directory -Force "$gtk\bin", "$gtk\lib", "$gtk\share" | Out-Null
@@ -56,6 +61,10 @@ if (Test-Path "$gtk\bin\gtk-update-icon-cache.exe") {
 }
 
 # ---- 2. Python ----
+$PyVersie = (Invoke-RestMethod "https://api.nuget.org/v3-flatcontainer/python/index.json").versions |
+    Where-Object { $_ -match ("^" + [regex]::Escape($PyReeks) + "\.\d+$") } |
+    Sort-Object { [version]$_ } | Select-Object -Last 1
+if (-not $PyVersie) { throw "geen Python $PyReeks op NuGet gevonden" }
 Stap "Python $PyVersie (NuGet)"
 $nugetMap = Join-Path $cache "nuget-$PyVersie"
 if (-not (Test-Path "$nugetMap\python\tools\python.exe")) {
@@ -74,8 +83,7 @@ $wheels = Get-ChildItem "$gv\wheels\*.whl" | ForEach-Object { $_.FullName }
 
 # ---- 4. De app met al haar onderdelen ----
 Stap "SellYourShit en onderdelen (met achtergrond weghalen op de processor)"
-& $py -m pip install --disable-pip-version-check --no-warn-script-location -q --prefer-binary `
-    -c "$root\windows\constraints.txt" "$root[ai]" pywin32
+& $py -m pip install --disable-pip-version-check --no-warn-script-location -q --prefer-binary "$root[ai]" pywin32
 Controleer "pakketten installeren"
 
 $sp = Join-Path $dist "python\Lib\site-packages"
@@ -101,6 +109,15 @@ if (-not (Test-Path $model) -or (Get-FileHash $model -Algorithm MD5).Hash -ne $M
 }
 New-Item -ItemType Directory -Force "$dist\modellen" | Out-Null
 Copy-Item $model "$dist\modellen\"
+
+Stap "Model AlphaMaker licht (IS-Net)"
+$isnet = Join-Path $cache "isnet-general.onnx"
+if (-not (Test-Path $isnet) -or (Get-FileHash $isnet -Algorithm SHA256).Hash -ne $IsnetSha.ToUpper()) {
+    Invoke-WebRequest $IsnetUrl -OutFile $isnet
+    if ((Get-FileHash $isnet -Algorithm SHA256).Hash -ne $IsnetSha.ToUpper()) { throw "IS-Net-model beschadigd (sha256)" }
+}
+New-Item -ItemType Directory -Force "$dist\modellen\alphamaker" | Out-Null
+Copy-Item $isnet "$dist\modellen\alphamaker\isnet-general.onnx"
 
 # ---- 7. Starter en pictogram ----
 Stap "Starter en pictogram"

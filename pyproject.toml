@@ -11,16 +11,18 @@ dependencies = ["pillow", "python-barcode", "openpyxl", "python-docx", "Send2Tra
                 "brother_ql", "selenium", "requests"]
 
 [project.optional-dependencies]
-ai = ["transparent-background", "opencv-python", "numpy", "tqdm", "psutil"]
+# achtergrond weghalen: transparent-background, en AlphaMaker licht (IS-Net via onnxruntime)
+ai = ["transparent-background", "opencv-python", "numpy", "tqdm", "psutil", "scipy", "onnxruntime"]
 
 [project.scripts]
 marktplaats-suite = "marktplaats_suite.productmanager:main"
 
 [tool.setuptools]
-packages = ["marktplaats_suite", "marktplaats_suite.assets"]
+packages = ["marktplaats_suite", "marktplaats_suite.assets", "marktplaats_suite.alphamaker"]
 
 [tool.setuptools.dynamic]
 version = {attr = "marktplaats_suite.__version__"}
 
 [tool.setuptools.package-data]
 marktplaats_suite = ["assets/*"]
+"marktplaats_suite.alphamaker" = ["LICENSE", "BRON.txt"]

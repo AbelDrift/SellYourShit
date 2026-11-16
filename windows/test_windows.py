@@ -163,6 +163,46 @@ try:
                    f"transparante PNG met doorzichtige en dichte delen ({im.mode}, alfa {alfa})")
     schermafdruk("2_na_verwerken.png", w)
 
+    stap("foto-editor (keuze van de motor)")
+    from marktplaats_suite import fotoverwerking as fv
+    print("   motoren:", fv.beschikbare_motoren(), flush=True)
+    controleer(fv.beschikbare_motoren() == ["transparent-background", "alphamaker-licht"],
+               "transparent-background en AlphaMaker licht beschikbaar")
+
+    def editor_vastleggen():
+        for x in Gtk.Window.list_toplevels():
+            if isinstance(x, Gtk.Dialog) and x.get_title() == "Foto editor" and x.get_visible():
+                schermafdruk("2b_foto_editor.png", x)
+                x.response(Gtk.ResponseType.CLOSE)
+                return False
+        return True
+    GLib.timeout_add(800, editor_vastleggen)
+    t._on_foto_editor(None)
+    tik(5)
+
+    stap("achtergrond weghalen met AlphaMaker licht")
+    eigen_cache = os.path.join(os.path.expanduser("~"), ".cache", "alphamaker", "isnet-general.onnx")
+    if sys.platform == "win32":
+        controleer(os.path.isfile(os.path.join(os.environ.get("ALPHAMAKER_MODELS", ""), "isnet-general.onnx")),
+                   "meegeleverd IS-Net-model gevonden")
+    klaar2 = {}
+    begin = time.time()
+    t._verwerk_fotos({"verkleinen": True, "transparant": True, "wit": True, "motor": "alphamaker-licht"},
+                     klaar=lambda ok: klaar2.setdefault("ok", ok))
+    while "ok" not in klaar2 and time.time() - begin < 900:
+        tik(1)
+    print(f"   AlphaMaker licht duurde {time.time() - begin:.0f} s; status: {t.foto_status.get_text()}", flush=True)
+    controleer(klaar2.get("ok") is True, "foto's verwerkt met AlphaMaker licht")
+    controleer(sorted(t.versies) == ["originelen", "transparant", "zonder_logo"], f"versies: {sorted(t.versies)}")
+    if t.versies.get("transparant"):
+        with Image.open(t.versies["transparant"][0]) as im:
+            alfa = im.getchannel("A").getextrema()
+        controleer(im.mode == "RGBA" and alfa[0] <= 10 and alfa[1] >= 245,
+                   f"AlphaMaker licht: doorzichtige en dichte delen ({im.mode}, alfa {alfa})")
+    if sys.platform == "win32":
+        controleer(not os.path.exists(eigen_cache), "geen model gedownload (meegeleverd model gebruikt)")
+    schermafdruk("2c_alphamaker_licht.png", w)
+
     stap("product registreren en productvenster")
     t.titel_entry.set_text("Testbeeldje Windows")
     for e, v in ((t.lengte_entry, "20"), (t.breedte_entry, "15"), (t.hoogte_entry, "10"), (t.gewicht_entry, "1")):

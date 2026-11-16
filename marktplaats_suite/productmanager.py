@@ -2815,7 +2815,8 @@ class RegistreerTab(Gtk.Box):
         box = dlg.get_content_area()
         box.set_spacing(8)
         box.set_border_width(12)
-        from marktplaats_suite.fotoverwerking import heeft_transparent_background, heeft_kleurverbetering
+        from marktplaats_suite.fotoverwerking import (heeft_kleurverbetering, beschikbare_motoren, MOTOREN,
+                                                      STANDAARD_MOTOR)
         uitleg = Gtk.Label()
         uitleg.set_markup("De originelen blijven altijd onbewerkt bewaard.\n\n<b>Voorbewerking</b> "
                           "<small>(geldt ook als je de editor niet opent)</small>")
@@ -2833,9 +2834,36 @@ class RegistreerTab(Gtk.Box):
         box.pack_start(chk_kleur, False, False, 0)
 
         versies_lbl = Gtk.Label()
-        versies_lbl.set_markup("\n<b>Extra versies</b> <small>(achtergrond verwijderen met transparent-background)</small>")
+        versies_lbl.set_markup("\n<b>Extra versies</b> <small>(achtergrond weghalen)</small>")
         versies_lbl.set_xalign(0)
         box.pack_start(versies_lbl, False, False, 0)
+
+        # waarmee de achtergrond weggaat: transparent-background of AlphaMaker licht
+        motoren = beschikbare_motoren()
+        motor_combo = Gtk.ComboBoxText()
+        for m in motoren:
+            motor_combo.append(m, MOTOREN[m][0])
+        if not motor_combo.set_active_id(cfg.get("achtergrond_motor", STANDAARD_MOTOR)) and motoren:
+            motor_combo.set_active(0)
+        motor_uitleg = Gtk.Label(xalign=0)
+        motor_uitleg.set_line_wrap(True)
+        motor_uitleg.set_max_width_chars(70)
+
+        def toon_motor_uitleg(*_):
+            m = motor_combo.get_active_id()
+            tekst = MOTOREN[m][1] if m in MOTOREN else ""
+            ontbreekt = [MOTOREN[x][0] for x in MOTOREN if x not in motoren]
+            if ontbreekt:
+                tekst += "\nNiet geïnstalleerd: " + ", ".join(ontbreekt) + "."
+            motor_uitleg.set_markup("<small>" + GLib.markup_escape_text(tekst) + "</small>")
+        motor_combo.connect("changed", toon_motor_uitleg)
+        toon_motor_uitleg()
+        if motoren:
+            motor_rij = Gtk.Box(spacing=8)
+            motor_rij.pack_start(Gtk.Label(label="Achtergrond weghalen met:", xalign=0), False, False, 0)
+            motor_rij.pack_start(motor_combo, False, False, 0)
+            box.pack_start(motor_rij, False, False, 0)
+            box.pack_start(motor_uitleg, False, False, 0)
 
         chk_tr = Gtk.CheckButton(label="Transparante achtergrond (PNG)")
         chk_tr.set_active(cfg.get("nieuw_transparant", False))
@@ -2845,12 +2873,12 @@ class RegistreerTab(Gtk.Box):
         chk_cu.set_active(cfg.get("nieuw_custom", False))
         for c in (chk_tr, chk_wit, chk_cu):
             box.pack_start(c, False, False, 0)
-        if not heeft_transparent_background():
+        if not motoren:
             for c in (chk_tr, chk_wit, chk_cu):
                 c.set_active(False)
                 c.set_sensitive(False)
             geen = Gtk.Label()
-            geen.set_markup("<small>transparent-background is niet geïnstalleerd: " +
+            geen.set_markup("<small>Achtergrond weghalen is niet geïnstalleerd (transparent-background of AlphaMaker): " +
                             GLib.markup_escape_text(installatie_hint(ai=True)) + "</small>")
             geen.set_xalign(0)
             box.pack_start(geen, False, False, 0)
@@ -2929,7 +2957,7 @@ class RegistreerTab(Gtk.Box):
         opties = {
             "verkleinen": chk_klein.get_active(), "kleur_verbeteren": chk_kleur.get_active(),
             "transparant": chk_tr.get_active(), "wit": chk_wit.get_active(), "custom": chk_cu.get_active(),
-            "met_logo": chk_logo.get_active(),
+            "met_logo": chk_logo.get_active(), "motor": motor_combo.get_active_id() or STANDAARD_MOTOR,
             "bg_kleur": "#%02x%02x%02x" % tuple(int(c * 255) for c in (kleur.get_rgba().red, kleur.get_rgba().green, kleur.get_rgba().blue)),
             "bg_afbeelding": bg_img.get_filename() or "",
             "watermerk": wm.get_filename() or "", "logo": lg.get_filename() or "",
@@ -2941,7 +2969,7 @@ class RegistreerTab(Gtk.Box):
         self._bewaar_foto_config(cfg_nieuw)
         self._bewaar_foto_config({
             "nieuw_transparant": opties["transparant"], "nieuw_wit": opties["wit"],
-            "nieuw_custom": opties["custom"], "nieuw_logo": opties["met_logo"],
+            "nieuw_custom": opties["custom"], "nieuw_logo": opties["met_logo"], "achtergrond_motor": opties["motor"],
             "background_color": opties["bg_kleur"], "background_image": opties["bg_afbeelding"],
             "watermark_path": opties["watermerk"], "logo_path": opties["logo"],
         })
@@ -2952,8 +2980,10 @@ class RegistreerTab(Gtk.Box):
 
     def _standaard_foto_opties(self):
         """Foto-editor niet gebruikt: alleen de voorbewerking (50%, kleuren) uit de editor-instellingen."""
+        from marktplaats_suite.fotoverwerking import STANDAARD_MOTOR
         cfg = self._foto_config()
-        return {"verkleinen": cfg.get("resize_50", True), "kleur_verbeteren": cfg.get("color_enhance", True)}
+        return {"verkleinen": cfg.get("resize_50", True), "kleur_verbeteren": cfg.get("color_enhance", True),
+                "motor": cfg.get("achtergrond_motor", STANDAARD_MOTOR)}
 
     def _verwerk_fotos(self, opties, klaar=None):
         from marktplaats_suite.fotoverwerking import maak_versies

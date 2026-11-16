@@ -9,9 +9,10 @@ Resultaat in de doelmap (zelfde mappen als de oude Product Studio, dus de Upload
   met_logo_bg/      idem, met watermerk/logo
 
 Voorbewerking zoals in de oude Product Studio: draaien volgens EXIF, verkleinen naar 50% en
-eventueel kleuren verbeteren. Achtergrond verwijderen gebeurt alleen met transparent-background,
-in een apart proces (achtergrond_helper.py), zodat een geheugenpiek of crash van het model de app
-niet meeneemt. Er staat steeds maar één foto tegelijk in het geheugen.
+eventueel kleuren verbeteren. Achtergrond verwijderen kan met transparent-background of met
+AlphaMaker licht (zie MOTOREN), altijd in een apart proces (achtergrond_helper.py),
+zodat een geheugenpiek of crash van het model de app niet meeneemt. Er staat steeds maar één
+foto tegelijk in het geheugen.
 """
 import glob
 import importlib.util
@@ -30,8 +31,38 @@ VERSIE_MAPPEN = ("transparant", "zonder_logo", "met_logo", "zonder_logo_bg", "me
 HELPER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "achtergrond_helper.py")
 
 
+# Motoren voor het weghalen van de achtergrond: naam -> (label, uitleg, benodigde modules)
+MOTOREN = {
+    "transparent-background": (
+        "transparent-background",
+        "InSPyReNet, zoals altijd. Gebruikt ±4 GB geheugen.",
+        ("transparent_background",)),
+    "alphamaker-licht": (
+        "AlphaMaker licht (IS-Net)",
+        "Snel en zuinig (±1 GB geheugen), zonder gekleurde rand van de oude achtergrond. "
+        "Goed voor gewone productfoto's.",
+        ("onnxruntime", "scipy", "numpy")),
+}
+STANDAARD_MOTOR = "transparent-background"
+
+
+def motor_beschikbaar(motor):
+    if motor not in MOTOREN:
+        return False
+    return all(importlib.util.find_spec(m) is not None for m in MOTOREN[motor][2])
+
+
+def beschikbare_motoren():
+    return [m for m in MOTOREN if motor_beschikbaar(m)]
+
+
 def heeft_transparent_background():
     return importlib.util.find_spec("transparent_background") is not None
+
+
+def heeft_achtergrondverwijdering():
+    """Is er minstens één manier om de achtergrond weg te halen?"""
+    return bool(beschikbare_motoren())
 
 
 def heeft_kleurverbetering():
@@ -102,14 +133,17 @@ def _lees_regels(stroom, wachtrij):
         wachtrij.put(regel)
 
 
-def verwijder_achtergrond(paden, uitmap, voortgang=None, stop=lambda: False):
-    """Maakt met transparent-background voor elke foto een PNG zonder achtergrond in uitmap.
+def verwijder_achtergrond(paden, uitmap, voortgang=None, stop=lambda: False, motor=STANDAARD_MOTOR,
+                          melding=None):
+    """Maakt voor elke foto een PNG zonder achtergrond in uitmap, met de gekozen motor.
 
-    Geeft (gelukt, meldingen) terug, met gelukt = {bronpad: pngpad}. Gooit RuntimeError als het
-    proces niet kan starten of halverwege wegvalt (bijvoorbeeld door te weinig geheugen)."""
-    if not heeft_transparent_background():
+    Geeft (gelukt, meldingen) terug, met gelukt = {bronpad: pngpad}. melding(tekst) krijgt
+    tussentijdse berichten (zoals 'model downloaden'). Gooit RuntimeError als het proces niet
+    kan starten of halverwege wegvalt (bijvoorbeeld door te weinig geheugen)."""
+    if not motor_beschikbaar(motor):
         from marktplaats_suite.common import installatie_hint
-        raise RuntimeError(f"transparent-background is niet geïnstalleerd ({installatie_hint(ai=True)}).")
+        naam = MOTOREN[motor][0] if motor in MOTOREN else motor
+        raise RuntimeError(f"{naam} is niet geïnstalleerd ({installatie_hint(ai=True)}).")
     os.makedirs(uitmap, exist_ok=True)
     doelen = [os.path.join(uitmap, os.path.splitext(os.path.basename(p))[0] + ".png") for p in paden]
     args = [x for paar in zip(paden, doelen) for x in paar]
@@ -119,6 +153,8 @@ def verwijder_achtergrond(paden, uitmap, voortgang=None, stop=lambda: False):
     def verwerk(regel):
         delen = regel.strip().split(" ", 2)
         if len(delen) < 2 or delen[0] not in ("KLAAR", "FOUT") or not delen[1].isdigit():
+            if melding and "downloaden" in regel:      # AlphaMaker meldt het downloaden van een model
+                melding("Model downloaden (eenmalig, kan even duren)...")
             return  # overige uitvoer van het model negeren
         i = int(delen[1]) - 1
         if not 0 <= i < len(paden):
@@ -139,7 +175,7 @@ def verwijder_achtergrond(paden, uitmap, voortgang=None, stop=lambda: False):
             python = kandidaat
         extra["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     with tempfile.TemporaryFile(mode="w+", encoding="utf-8", errors="replace") as foutlog:
-        proc = subprocess.Popen([python, "-I", HELPER] + args, stdout=subprocess.PIPE, stderr=foutlog,
+        proc = subprocess.Popen([python, "-I", HELPER, f"--motor={motor}"] + args, stdout=subprocess.PIPE, stderr=foutlog,
                                 stdin=subprocess.DEVNULL, text=True, encoding="utf-8", errors="replace",
                                 env=env, **extra)
         regels = queue.Queue()
@@ -175,6 +211,7 @@ def maak_versies(fotos, doelmap, opties, voortgang=None, stop=lambda: False):
          verkleinen (bool, standaard True)   -> naar 50%, zoals de oude Product Studio
          kleur_verbeteren (bool)             -> automatisch (opencv nodig)
          transparant, wit, custom, met_logo (bool)
+         motor (str, zie MOTOREN)            -> waarmee de achtergrond weggaat
          bg_kleur ('#rrggbb') of bg_afbeelding (pad)  -> voor 'custom'
          watermerk, logo (paden)
        Geeft (uit, meldingen) terug; uit = {"mapnaam": [paden]}."""
@@ -234,14 +271,20 @@ def maak_versies(fotos, doelmap, opties, voortgang=None, stop=lambda: False):
                     meld.append(f"Foto {i + 1}: kleuren verbeteren mislukt ({e}).")
             voorbereid.append(doel)
 
-        # 3. achtergrond verwijderen (transparent-background, apart proces)
+        # 3. achtergrond verwijderen (apart proces, met de gekozen motor)
         pngs = {}
         if achtergrond:
-            fase("achter", 0, "Achtergrond verwijderen met transparent-background (model laden)...")
+            motor = opties.get("motor") or STANDAARD_MOTOR
+            if not motor_beschikbaar(motor) and beschikbare_motoren():
+                meld.append(f"{MOTOREN.get(motor, (motor,))[0]} is niet geïnstalleerd; "
+                            f"{MOTOREN[beschikbare_motoren()[0]][0]} gebruikt.")
+                motor = beschikbare_motoren()[0]
+            naam = MOTOREN[motor][0] if motor in MOTOREN else motor
+            fase("achter", 0, f"Achtergrond verwijderen met {naam} (model laden)...")
             pngs, m = verwijder_achtergrond(
                 voorbereid, os.path.join(werk, "png"),
-                voortgang=lambda k, t: fase("achter", k, f"Achtergrond verwijderen: foto {k} van {t}"),
-                stop=stop)
+                voortgang=lambda k, t: fase("achter", k, f"Achtergrond verwijderen ({naam}): foto {k} van {t}"),
+                stop=stop, motor=motor, melding=lambda tekst: fase("achter", 0, tekst))
             meld += m
             if stop():
                 return uit, meld

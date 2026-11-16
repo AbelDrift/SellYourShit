@@ -28,7 +28,7 @@ git clone https://github.com/AbelDrift/SellYourShit.git
 cd SellYourShit
 ./install.sh                 # basis
 ./install.sh --met-chrome    # + Google Chrome (amd64) voor de Automater
-./install.sh --met-ai        # + AI-achtergrondverwijdering (groot: torch)
+./install.sh --met-ai        # + AI-achtergrondverwijdering: transparent-background en AlphaMaker licht (groot: torch)
 ```
 
 Wat het doet: apt-pakketten (`python3-gi`, `gir1.2-gtk-3.0`, `imagemagick`, …), een eigen
@@ -44,8 +44,8 @@ Verwijderen: `./uninstall.sh` (`--alles` wist ook je gegevens).
    `%LOCALAPPDATA%\Programs\SellYourShit`, met een snelkoppeling in het Startmenu (en desgewenst op het bureaublad).
    Zegt Windows *"Windows heeft uw pc beschermd"*? Het installatieprogramma is niet digitaal ondertekend:
    klik op **Meer informatie** en dan **Toch uitvoeren**.
-3. Klaar. Alles zit erin: Python, GTK, het weghalen van de achtergrond (transparent-background op de processor,
-   het model wordt meegeleverd) en printen via elke Windows-printer.
+3. Klaar. Alles zit erin: Python, GTK, het weghalen van de achtergrond (transparent-background en
+   AlphaMaker licht, op de processor; de modellen worden meegeleverd) en printen via elke Windows-printer.
 
 - **Bijwerken:** download de nieuwe setup.exe en voer hem uit; je producten en instellingen blijven staan.
 - **Verwijderen:** Windows-instellingen → Apps → SellYourShit. Je gegevens blijven staan.
@@ -138,8 +138,12 @@ De brug in de Suite luistert alleen op 127.0.0.1 en accepteert alleen verzoeken 
 3. **🖼️ Foto editor**: voorbewerking zoals in de oude Product Studio (verkleinen naar 50% en
    automatisch kleuren verbeteren; geldt ook als je de editor niet opent) en optioneel extra versies:
    transparant, witte achtergrond, eigen achtergrond (kleur of afbeelding), en die versies ook met
-   logo/watermerk. Achtergrond verwijderen gebeurt met transparent-background in een apart proces,
-   één foto tegelijk. Hier kun je ook roteren
+   logo/watermerk. Bij **Achtergrond weghalen met** kies je:
+   - **transparent-background** (InSPyReNet, zoals altijd; ±4 GB geheugen);
+   - **AlphaMaker licht** (IS-Net via ONNX Runtime, uit [AlphaMaker](https://github.com/AbelDrift/AlphaMaker)):
+     snel en zuinig (±1 GB geheugen), en zonder gekleurde rand van de oude achtergrond.
+
+   Dat gebeurt in een apart proces, één foto tegelijk; je keuze wordt onthouden. Hier kun je ook roteren
    (inspecteren) of de foto's openen in GIMP. De keuzes onder de preview (original / transparant /
    white / custom bg) laten zien welke versie je bekijkt.
 4. **💾 Product registreren**: artikelnummer, productmap, barcode en alle foto's komen in één keer
@@ -154,7 +158,9 @@ De brug in de Suite luistert alleen op 127.0.0.1 en accepteert alleen verzoeken 
   ChatGPT, DeepSeek of de Gemini-site en plak het antwoord terug (ook via **📋 Plak AI-tekst**).
 
 Voor transparant/wit/eigen achtergrond is achtergrondverwijdering nodig: installeer met
-`./install.sh --met-ai` (transparent-background).
+`./install.sh --met-ai` (transparent-background en AlphaMaker licht). Het model van AlphaMaker licht
+(±170 MB) wordt de eerste keer gedownload naar `~/.cache/alphamaker`; AlphaMaker zelf zit in de app
+(`marktplaats_suite/alphamaker`, MIT, zie `BRON.txt` daar).
 
 ## Product Management
 

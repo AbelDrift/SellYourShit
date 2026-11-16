@@ -13,6 +13,7 @@ HIER = os.path.dirname(os.path.abspath(__file__))
 GTK = os.path.join(HIER, "gtk")
 LOKAAL = os.path.join(os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"), "SellYourShit")
 MODEL = os.path.join(HIER, "modellen", "ckpt_base.pth")   # transparent-background, meegeleverd
+ALPHAMAKER_MODELLEN = os.path.join(HIER, "modellen", "alphamaker")   # IS-Net voor AlphaMaker licht
 _dll_mappen = []
 
 
@@ -27,6 +28,8 @@ def omgeving():
     os.environ.setdefault("GSETTINGS_SCHEMA_DIR", os.path.join(GTK, "share", "glib-2.0", "schemas"))
     if os.path.isfile(MODEL):
         os.environ["SELLYOURSHIT_TB_CKPT"] = MODEL
+    if os.path.isdir(ALPHAMAKER_MODELLEN):
+        os.environ.setdefault("ALPHAMAKER_MODELS", ALPHAMAKER_MODELLEN)
     # De lijst met beeldformaat-modules bevat volledige paden: per installatie opnieuw maken.
     moduledir = os.path.join(GTK, "lib", "gdk-pixbuf-2.0", "2.10.0", "loaders")
     cache = os.path.join(LOKAAL, "loaders.cache")

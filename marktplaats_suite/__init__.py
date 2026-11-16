@@ -1,2 +1,2 @@
 """SellYourShit: productmanager, fotomanager, scanner en automater in één pakket."""
-__version__ = "2.7"
+__version__ = "2.8"

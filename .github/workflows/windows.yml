@@ -23,6 +23,7 @@ jobs:
             cache/GTK3_Gvsbuild_*.zip
             cache/nuget-*
             cache/ckpt_base.pth
+            cache/isnet-general.onnx
           key: windows-bouw-${{ hashFiles('windows/build.ps1') }}
 
       - name: Bouwen

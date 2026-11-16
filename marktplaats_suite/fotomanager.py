@@ -2,7 +2,7 @@
 """
 Fotohulpmiddelen voor Nieuw Product: de bestandskiezer met grote pictogrammen en het
 inspectievenster (roteren, zoomen, openen in GIMP). De verwerking zelf (verkleinen, achtergrond
-verwijderen met transparent-background, versies met logo) staat in fotoverwerking.py.
+verwijderen met transparent-background of AlphaMaker, versies met logo) staat in fotoverwerking.py.
 """
 
 import gi
