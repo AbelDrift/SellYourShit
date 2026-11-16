@@ -50,6 +50,24 @@ fi
 # rembg wordt niet meer gebruikt (alleen transparent-background); oude installatie opruimen
 "$VENV/bin/python" -m pip uninstall -y rembg >/dev/null 2>&1 || true
 
+if [ "$MET_AI" -eq 1 ]; then
+  # AlphaMaker zelf zit in de app; alleen het model (IS-Net, ±170 MB) alvast ophalen, anders doet
+  # de app dat de eerste keer zelf.
+  AM_DIR="${ALPHAMAKER_MODELS:-$HOME/.cache/alphamaker}"
+  if [ ! -f "$AM_DIR/isnet-general.onnx" ]; then
+    echo "==> Model voor AlphaMaker licht (IS-Net, ±170 MB)"
+    mkdir -p "$AM_DIR"
+    if wget -q --show-progress -O "$AM_DIR/isnet-general.onnx.part" \
+         https://github.com/danielgatis/rembg/releases/download/v0.0.0/isnet-general-use.onnx \
+       && echo "60920e99c45464f2ba57bee2ad08c919a52bbf852739e96947fbb4358c0d964a  $AM_DIR/isnet-general.onnx.part" | sha256sum -c --quiet -; then
+      mv "$AM_DIR/isnet-general.onnx.part" "$AM_DIR/isnet-general.onnx"
+    else
+      rm -f "$AM_DIR/isnet-general.onnx.part"
+      echo "   (downloaden lukte niet: de app haalt het model de eerste keer zelf op)"
+    fi
+  fi
+fi
+
 echo "==> Starters"
 mkdir -p "$HOME/.local/bin" "$HOME/.local/share/applications" "$PREFIX"
 cp "$SRC/marktplaats_suite/assets/icon.png" "$PREFIX/icon.png"
