@@ -141,8 +141,9 @@ try:
     schermafdruk("0_scherm.png")
     schermafdruk("1_nieuw_product.png", w)
 
-    stap("foto's toevoegen en verwerken (transparent-background op de processor)")
+    stap("foto's toevoegen")
     from PIL import Image, ImageDraw
+    from marktplaats_suite import fotoverwerking as fv
     t = w.registreer_tab
     fotos = []
     for i, kleur in enumerate(((210, 60, 60), (60, 160, 90))):
@@ -154,61 +155,53 @@ try:
     t._voeg_fotos_toe(fotos)
     tik(5)
     controleer(len(t.fotos) == 2, "twee foto's in de preview")
-    klaar = {}
-    begin = time.time()
-    t._verwerk_fotos({"verkleinen": True, "kleur_verbeteren": True, "transparant": True, "wit": True},
-                     klaar=lambda ok: klaar.setdefault("ok", ok))
-    while "ok" not in klaar and time.time() - begin < 1500:
-        tik(1)
-    print(f"   verwerken duurde {time.time() - begin:.0f} s; status: {t.foto_status.get_text()}", flush=True)
-    controleer(klaar.get("ok") is True, "foto's verwerkt")
-    controleer(sorted(t.versies) == ["originelen", "transparant", "zonder_logo"], f"versies: {sorted(t.versies)}")
-    if t.versies.get("transparant"):
-        with Image.open(t.versies["transparant"][0]) as im:
-            alfa = im.getchannel("A").getextrema()
-        controleer(im.mode == "RGBA" and alfa[0] <= 10 and alfa[1] >= 245,
-                   f"transparante PNG met doorzichtige en dichte delen ({im.mode}, alfa {alfa})")
-    schermafdruk("2_na_verwerken.png", w)
+    print("   motoren:", fv.beschikbare_motoren(), "| standaard:", t._standaard_foto_opties().get("motor"), flush=True)
+    controleer(fv.beschikbare_motoren() == ["alphamaker-zwaar", "alphamaker-licht", "transparent-background"],
+               "AlphaMaker zwaar, AlphaMaker licht en transparent-background beschikbaar")
+    controleer(t._standaard_foto_opties().get("motor") == "alphamaker-zwaar", "AlphaMaker zwaar is de standaard")
+    if sys.platform == "win32":
+        controleer(os.path.isfile(os.path.join(os.environ.get("ALPHAMAKER_MODELS", ""), "isnet-general.onnx")),
+                   "meegeleverd IS-Net-model gevonden")
+    eigen_cache = os.path.join(os.path.expanduser("~"), ".cache", "alphamaker", "isnet-general.onnx")
+
+    def verwerk_met(motor, naam, schermnaam):
+        stap(f"achtergrond weghalen met {naam}")
+        opties = {"verkleinen": True, "kleur_verbeteren": True, "transparant": True, "wit": True}
+        if motor:
+            opties["motor"] = motor
+        klaar = {}
+        begin = time.time()
+        t._verwerk_fotos(opties, klaar=lambda ok: klaar.setdefault("ok", ok))
+        while "ok" not in klaar and time.time() - begin < 1500:
+            tik(1)
+        print(f"   {naam} duurde {time.time() - begin:.0f} s; status: {t.foto_status.get_text()}", flush=True)
+        controleer(klaar.get("ok") is True, f"foto's verwerkt met {naam}")
+        controleer(sorted(t.versies) == ["originelen", "transparant", "zonder_logo"], f"versies: {sorted(t.versies)}")
+        if t.versies.get("transparant"):
+            with Image.open(t.versies["transparant"][0]) as im:
+                alfa = im.getchannel("A").getextrema()
+            controleer(im.mode == "RGBA" and alfa[0] <= 10 and alfa[1] >= 245,
+                       f"{naam}: doorzichtige en dichte delen ({im.mode}, alfa {alfa})")
+        schermafdruk(schermnaam, w)
+
+    verwerk_met(None, "AlphaMaker zwaar (standaard)", "2_alphamaker_zwaar.png")
+    verwerk_met("alphamaker-licht", "AlphaMaker licht", "2a_alphamaker_licht.png")
+    verwerk_met("transparent-background", "transparent-background", "2b_transparent_background.png")
+    if sys.platform == "win32":
+        controleer(not os.path.exists(eigen_cache), "geen model gedownload (meegeleverde modellen gebruikt)")
 
     stap("foto-editor (keuze van de motor)")
-    from marktplaats_suite import fotoverwerking as fv
-    print("   motoren:", fv.beschikbare_motoren(), flush=True)
-    controleer(fv.beschikbare_motoren() == ["transparent-background", "alphamaker-licht"],
-               "transparent-background en AlphaMaker licht beschikbaar")
 
     def editor_vastleggen():
         for x in Gtk.Window.list_toplevels():
             if isinstance(x, Gtk.Dialog) and x.get_title() == "Foto editor" and x.get_visible():
-                schermafdruk("2b_foto_editor.png", x)
+                schermafdruk("2c_foto_editor.png", x)
                 x.response(Gtk.ResponseType.CLOSE)
                 return False
         return True
     GLib.timeout_add(800, editor_vastleggen)
     t._on_foto_editor(None)
     tik(5)
-
-    stap("achtergrond weghalen met AlphaMaker licht")
-    eigen_cache = os.path.join(os.path.expanduser("~"), ".cache", "alphamaker", "isnet-general.onnx")
-    if sys.platform == "win32":
-        controleer(os.path.isfile(os.path.join(os.environ.get("ALPHAMAKER_MODELS", ""), "isnet-general.onnx")),
-                   "meegeleverd IS-Net-model gevonden")
-    klaar2 = {}
-    begin = time.time()
-    t._verwerk_fotos({"verkleinen": True, "transparant": True, "wit": True, "motor": "alphamaker-licht"},
-                     klaar=lambda ok: klaar2.setdefault("ok", ok))
-    while "ok" not in klaar2 and time.time() - begin < 900:
-        tik(1)
-    print(f"   AlphaMaker licht duurde {time.time() - begin:.0f} s; status: {t.foto_status.get_text()}", flush=True)
-    controleer(klaar2.get("ok") is True, "foto's verwerkt met AlphaMaker licht")
-    controleer(sorted(t.versies) == ["originelen", "transparant", "zonder_logo"], f"versies: {sorted(t.versies)}")
-    if t.versies.get("transparant"):
-        with Image.open(t.versies["transparant"][0]) as im:
-            alfa = im.getchannel("A").getextrema()
-        controleer(im.mode == "RGBA" and alfa[0] <= 10 and alfa[1] >= 245,
-                   f"AlphaMaker licht: doorzichtige en dichte delen ({im.mode}, alfa {alfa})")
-    if sys.platform == "win32":
-        controleer(not os.path.exists(eigen_cache), "geen model gedownload (meegeleverd model gebruikt)")
-    schermafdruk("2c_alphamaker_licht.png", w)
 
     stap("product registreren en productvenster")
     t.titel_entry.set_text("Testbeeldje Windows")

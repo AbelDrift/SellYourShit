@@ -20,6 +20,9 @@ MODELS = {
     # ViTMatte (verfijning): dynamische invoermaat, ook vanuit de browser te laden
     'vitmatte':         (HF + 'Xenova/vitmatte-small-composition-1k/resolve/main/onnx/model.onnx', None, None, None, None),
     'vitmatte-q':       (HF + 'Xenova/vitmatte-small-composition-1k/resolve/main/onnx/model_quantized.onnx', None, None, None, None),
+    # router van withoutBG v4 (Apache-2.0 + DINOv3-voorwaarden), alleen voor --type auto: kiest per foto haar- of objectmodel
+    'wbg-router':       (HF + 'withoutbg/withoutbg-openweights-onnx/resolve/232aa520ccb6f94316cd638a7d916832479ec9a8/withoutbg-open-weights-backbone.onnx',
+                         448, None, None, 'a64ba43cc25557f568ad6f35ed1139049dd43f5568385fa4f9848e0b4c7123ff'),
 }
 CACHE = Path(os.environ.get('ALPHAMAKER_MODELS', Path.home() / '.cache/alphamaker'))
 _sessions = {}
@@ -84,13 +87,33 @@ def segment(img, name):
     return np.asarray(Image.fromarray(y).resize(img.size, Image.BILINEAR), np.float32).clip(0, 1)
 
 
-# beste allrounder op de schone testset (zie README); zonder PyTorch een licht ONNX-model
+def _bilinear(x, height, width):
+    """(C, H, W) → (C, height, width) zoals torch bilinear (align_corners=False, geen antialias); uit de withoutBG-README."""
+    def axis(src, dst):
+        pos = np.maximum((np.arange(dst) + 0.5) * (src / dst) - 0.5, 0.0)
+        i0 = pos.astype(np.int64)
+        return i0, np.minimum(i0 + 1, src - 1), (pos - i0).astype(np.float32)
+    r0, r1, rl = axis(x.shape[1], height)
+    c0, c1, cl = axis(x.shape[2], width)
+    rows = x[:, r0] * (1 - rl)[:, None] + x[:, r1] * rl[:, None]
+    return rows[:, :, c0] * (1 - cl) + rows[:, :, c1] * cl
+
+
+def kind(img):
+    """'persoon' als de withoutBG-router haar ziet (klasse fine_strand), anders 'object'.
+    Schone test: 37 van 50 portretten fine_strand, 0 van 100 objecten."""
+    x = _bilinear(np.asarray(img.convert('RGB'), np.float32).transpose(2, 0, 1) / 255, 448, 448)
+    logits = session('wbg-router').run(['route_logits'], {'rgb_matting': x[None]})[0][0]
+    return 'persoon' if int(np.argmax(logits)) == 0 else 'object'  # klassen: fine_strand, soft_detail, transparency, ...
+
+
+# veilig compromis (0 missers op portretten, MIT); objecten: rmbg-1.4, haar: birefnet-general (zie README)
 try:
     import transparent_background  # noqa: F401
     DEFAULT_MODEL = 'inspyrenet'
 except ImportError:
     DEFAULT_MODEL = 'birefnet-general' if pt.available() else 'isnet-general'
-SEGMENTERS = ['inspyrenet'] + [m for m in MODELS if not m.startswith('vitmatte')] + list(pt.PT)
+SEGMENTERS = ['inspyrenet'] + [m for m in MODELS if not m.startswith(('vitmatte', 'wbg'))] + list(pt.PT)
 MAX_PIXELS = 50_000_000              # zelfde plafond als remove.bg
 Image.MAX_IMAGE_PIXELS = MAX_PIXELS
 

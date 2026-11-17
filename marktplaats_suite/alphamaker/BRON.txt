@@ -2,7 +2,7 @@ AlphaMaker - meegeleverd in SellYourShit
 =========================================
 
 Bron:    https://github.com/AbelDrift/AlphaMaker
-Versie:  commit 86291ab7aefd69f18ca0ef897bd5f1748ae3e512 (16 november 2026)
+Versie:  commit 6917308 (17 november 2026)
 Licentie: MIT (zie LICENSE in deze map)
 
 Overgenomen zonder wijzigingen: __init__.py, core.py, pt.py, refine.py.
@@ -10,11 +10,16 @@ Niet overgenomen: de commandoregel en webpagina (__main__.py, static/), de webve
 de benchmark en de tests; die staan in de AlphaMaker-repository.
 
 SellYourShit gebruikt hieruit (via achtergrond_helper.py, in een apart proces):
+  - AlphaMaker zwaar (standaard): model 'inspyrenet' (InSPyReNet via transparent-background,
+    MIT), de standaard van AlphaMaker zelf: het veiligste compromis, geen missers op
+    portretten. ±4 GB geheugen.
   - AlphaMaker licht: model 'isnet-general' (IS-Net via ONNX Runtime, Apache-2.0),
-    weinig geheugen (~1 GB) en snel. AlphaMaker maakt het masker op de originele maat en
-    haalt de kleur van de oude achtergrond uit de randen ('blur fusion').
-  De zware versie (InSPyReNet/BiRefNet) zit in de code maar wordt (nog) niet aangeboden.
-  Modellen met een niet-commerciële licentie (RMBG) worden niet gebruikt.
+    weinig geheugen (~1 GB) en snel.
+  Bij allebei maakt AlphaMaker het masker op de originele maat en haalt het de kleur van de
+  oude achtergrond uit de randen ('blur fusion').
+  Niet gebruikt: RMBG-1.4 ('--type object', ook via de router van '--type auto'), want dat
+  model is alleen voor niet-commercieel gebruik; BiRefNet ('--type persoon') vraagt extra
+  pakketten en een download van honderden MB's.
 
 Bijwerken: kopieer de vier bestanden uit een nieuwere AlphaMaker-versie hierheen en pas
 de commit hierboven aan.

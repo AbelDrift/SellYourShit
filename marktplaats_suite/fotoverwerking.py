@@ -9,8 +9,8 @@ Resultaat in de doelmap (zelfde mappen als de oude Product Studio, dus de Upload
   met_logo_bg/      idem, met watermerk/logo
 
 Voorbewerking zoals in de oude Product Studio: draaien volgens EXIF, verkleinen naar 50% en
-eventueel kleuren verbeteren. Achtergrond verwijderen kan met transparent-background of met
-AlphaMaker licht (zie MOTOREN), altijd in een apart proces (achtergrond_helper.py),
+eventueel kleuren verbeteren. Achtergrond verwijderen kan met AlphaMaker (zwaar of licht) of met
+transparent-background (zie MOTOREN), altijd in een apart proces (achtergrond_helper.py),
 zodat een geheugenpiek of crash van het model de app niet meeneemt. Er staat steeds maar één
 foto tegelijk in het geheugen.
 """
@@ -33,17 +33,24 @@ HELPER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "achtergrond_h
 
 # Motoren voor het weghalen van de achtergrond: naam -> (label, uitleg, benodigde modules)
 MOTOREN = {
-    "transparent-background": (
-        "transparent-background",
-        "InSPyReNet, zoals altijd. Gebruikt ±4 GB geheugen.",
-        ("transparent_background",)),
+    "alphamaker-zwaar": (
+        "AlphaMaker zwaar (InSPyReNet)",
+        "Beste kwaliteit: masker op volle maat en geen gekleurde rand van de oude achtergrond. "
+        "Gebruikt ±4 GB geheugen.",
+        ("transparent_background", "scipy", "numpy")),
     "alphamaker-licht": (
         "AlphaMaker licht (IS-Net)",
         "Snel en zuinig (±1 GB geheugen), zonder gekleurde rand van de oude achtergrond. "
         "Goed voor gewone productfoto's.",
         ("onnxruntime", "scipy", "numpy")),
+    "transparent-background": (
+        "transparent-background",
+        "InSPyReNet zoals vroeger, zonder de correcties van AlphaMaker. Gebruikt ±4 GB geheugen.",
+        ("transparent_background",)),
 }
-STANDAARD_MOTOR = "transparent-background"
+STANDAARD_MOTOR = "alphamaker-zwaar"
+# Opgeslagen keuzes van vóór deze standaard worden één keer naar de nieuwe standaard gezet.
+MOTOR_STANDAARD_VERSIE = 2
 
 
 def motor_beschikbaar(motor):

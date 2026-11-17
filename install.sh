@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SellYourShit - installatie voor Debian (11+) en Ubuntu (22.04+) en afgeleiden.
 # Gebruik:  ./install.sh [--met-ai] [--met-chrome]
-#   --met-ai      ook AI-achtergrondverwijdering (transparent-background, AlphaMaker licht en opencv; groot!)
+#   --met-ai      ook AI-achtergrondverwijdering (AlphaMaker zwaar en licht, transparent-background, opencv; groot!)
 #   --met-chrome  Google Chrome installeren (alleen amd64) voor de Automater
 set -euo pipefail
 

@@ -2789,11 +2789,17 @@ class RegistreerTab(Gtk.Box):
 
     # --- Foto-editor ---
     def _foto_config(self):
+        from marktplaats_suite.fotoverwerking import STANDAARD_MOTOR, MOTOR_STANDAARD_VERSIE
         try:
             with open(os.path.join(data_dir(), "fotomanager_config.json")) as f:
-                return json.load(f)
+                cfg = json.load(f)
         except (OSError, ValueError):
-            return {}
+            cfg = {}
+        if cfg.get("achtergrond_motor_versie", 0) < MOTOR_STANDAARD_VERSIE:
+            # keuze van vóór de nieuwe standaard (AlphaMaker zwaar): één keer omzetten
+            cfg["achtergrond_motor"] = STANDAARD_MOTOR
+            cfg["achtergrond_motor_versie"] = MOTOR_STANDAARD_VERSIE
+        return cfg
 
     def _bewaar_foto_config(self, wijzigingen):
         cfg = self._foto_config()
@@ -2816,7 +2822,7 @@ class RegistreerTab(Gtk.Box):
         box.set_spacing(8)
         box.set_border_width(12)
         from marktplaats_suite.fotoverwerking import (heeft_kleurverbetering, beschikbare_motoren, MOTOREN,
-                                                      STANDAARD_MOTOR)
+                                                      STANDAARD_MOTOR, MOTOR_STANDAARD_VERSIE)
         uitleg = Gtk.Label()
         uitleg.set_markup("De originelen blijven altijd onbewerkt bewaard.\n\n<b>Voorbewerking</b> "
                           "<small>(geldt ook als je de editor niet opent)</small>")
@@ -2838,7 +2844,7 @@ class RegistreerTab(Gtk.Box):
         versies_lbl.set_xalign(0)
         box.pack_start(versies_lbl, False, False, 0)
 
-        # waarmee de achtergrond weggaat: transparent-background of AlphaMaker licht
+        # waarmee de achtergrond weggaat: AlphaMaker zwaar (standaard) of licht, of transparent-background
         motoren = beschikbare_motoren()
         motor_combo = Gtk.ComboBoxText()
         for m in motoren:
@@ -2970,6 +2976,7 @@ class RegistreerTab(Gtk.Box):
         self._bewaar_foto_config({
             "nieuw_transparant": opties["transparant"], "nieuw_wit": opties["wit"],
             "nieuw_custom": opties["custom"], "nieuw_logo": opties["met_logo"], "achtergrond_motor": opties["motor"],
+            "achtergrond_motor_versie": MOTOR_STANDAARD_VERSIE,
             "background_color": opties["bg_kleur"], "background_image": opties["bg_afbeelding"],
             "watermark_path": opties["watermerk"], "logo_path": opties["logo"],
         })

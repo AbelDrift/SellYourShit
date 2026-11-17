@@ -3,9 +3,9 @@
 fotoverwerking.py start dit met:
     python -I achtergrond_helper.py --motor=NAAM bron1 doel1 bron2 doel2 ...
 Motoren (zie fotoverwerking.MOTOREN):
+    alphamaker-zwaar         AlphaMaker met InSPyReNet: masker op volle maat + randkleurcorrectie
+    alphamaker-licht         AlphaMaker met IS-Net (ONNX Runtime): snel, ~1 GB geheugen
     transparent-background   InSPyReNet, zoals de oude Product Studio (mode 'base', CPU, rgba)
-    alphamaker-licht         AlphaMaker met IS-Net (ONNX Runtime): snel, ~1 GB geheugen, met
-                             AlphaMakers randkleurcorrectie
 Het model wordt één keer geladen en de foto's gaan één voor één. Per foto komt er een regel
 'KLAAR n' of 'FOUT n melding' op stdout. Een geheugenpiek of crash van het model raakt zo alleen
 dit proces en niet de app.
@@ -55,6 +55,12 @@ def maak_verwerker(motor):
     if motor == "alphamaker-licht":
         core = _alphamaker()
         return lambda im: core.cutout(im, "isnet-general")
+    if motor == "alphamaker-zwaar":
+        core = _alphamaker()
+        # Zelf het InSPyReNet-model klaarzetten: zo gebruikt AlphaMaker het meegeleverde model
+        # (Windows) en alle processorkernen; AlphaMaker zelf maakt het zonder model-pad en met 4 aan.
+        core._pt["inspyrenet"] = _remover()
+        return lambda im: core.cutout(im, "inspyrenet")
     raise ValueError(f"onbekende motor: {motor}")
 
 
