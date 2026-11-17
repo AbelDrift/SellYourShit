@@ -156,9 +156,9 @@ try:
     tik(5)
     controleer(len(t.fotos) == 2, "twee foto's in de preview")
     print("   motoren:", fv.beschikbare_motoren(), "| standaard:", t._standaard_foto_opties().get("motor"), flush=True)
-    controleer(fv.beschikbare_motoren() == ["alphamaker-snel", "alphamaker-zwaar", "alphamaker-licht"],
-               "Snel (RMBG-1.4), Drukke achtergrond (InSPyReNet) en Snel zakelijk (IS-Net) beschikbaar")
-    controleer(t._standaard_foto_opties().get("motor") == "alphamaker-snel", "Snel (RMBG-1.4) is de standaard")
+    controleer(fv.beschikbare_motoren() == ["alphamaker-licht", "alphamaker-zwaar"],
+               "Snel (IS-Net) en Drukke achtergrond (InSPyReNet) beschikbaar")
+    controleer(t._standaard_foto_opties().get("motor") == "alphamaker-licht", "Snel (IS-Net) is de standaard")
     if sys.platform == "win32":
         controleer(os.path.isfile(os.path.join(os.environ.get("ALPHAMAKER_MODELS", ""), "isnet-general.onnx")),
                    "meegeleverd IS-Net-model gevonden")
@@ -184,14 +184,13 @@ try:
                        f"{naam}: doorzichtige en dichte delen ({im.mode}, alfa {alfa})")
         schermafdruk(schermnaam, w)
 
-    verwerk_met(None, "Snel - RMBG-1.4 (standaard)", "2_snel_rmbg.png")
+    verwerk_met(None, "Snel - IS-Net (standaard)", "2_snel_isnet.png")
     verwerk_met("alphamaker-zwaar", "Drukke achtergrond - InSPyReNet", "2a_drukke_achtergrond.png")
-    verwerk_met("alphamaker-licht", "Snel zakelijk - IS-Net", "2b_snel_zakelijk.png")
     if sys.platform == "win32":
         modellen = os.environ.get("ALPHAMAKER_MODELS", "")
-        controleer(os.path.isfile(os.path.join(modellen, "rmbg-1.4.onnx")),
-                   "RMBG-1.4 de eerste keer gedownload naar de programmamap")
-        controleer(not os.path.exists(eigen_cache), "geen modellen in ~/.cache (alles in de programmamap)")
+        controleer(sorted(os.listdir(modellen)) == ["isnet-general.onnx"],
+                   f"niets gedownload: alleen het meegeleverde model ({sorted(os.listdir(modellen))})")
+        controleer(not os.path.exists(eigen_cache), "geen modellen in ~/.cache")
 
     stap("foto-editor (keuze van de motor)")
 

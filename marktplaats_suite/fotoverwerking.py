@@ -32,25 +32,23 @@ HELPER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "achtergrond_h
 
 
 # Motoren voor het weghalen van de achtergrond: naam -> (label, uitleg, benodigde modules)
+# Alleen modellen die commercieel gebruikt mogen worden: de app maakt foto's klaar voor verkoop.
+# (RMBG-1.4, dat AlphaMaker voor objecten aanraadt, is alleen voor niet-commercieel gebruik.)
 MOTOREN = {
-    "alphamaker-snel": (
-        "Snel – effen achtergrond (RMBG-1.4)",
-        "Beste en snelste voor producten en objecten. Alleen voor niet-commercieel gebruik "
-        "(licentie van Bria). Het model (176 MB) wordt de eerste keer gedownload.",
+    "alphamaker-licht": (
+        "Snel – effen achtergrond (IS-Net)",
+        "Snel en zuinig (±1 GB geheugen), voor producten op een effen achtergrond. "
+        "Commercieel gebruik toegestaan (Apache-2.0).",
         ("onnxruntime", "scipy", "numpy")),
     "alphamaker-zwaar": (
         "Drukke achtergrond (InSPyReNet)",
         "Het model van transparent-background, met de randcorrectie van AlphaMaker. Voor "
-        "rommelige achtergronden; trager en ±4 GB geheugen.",
+        "rommelige achtergronden; trager en ±4 GB geheugen. Commercieel gebruik toegestaan (MIT).",
         ("transparent_background", "scipy", "numpy")),
-    "alphamaker-licht": (
-        "Snel, ook zakelijk (IS-Net)",
-        "Iets minder nauwkeurig dan RMBG-1.4, maar commercieel gebruik mag (Apache-2.0).",
-        ("onnxruntime", "scipy", "numpy")),
 }
-STANDAARD_MOTOR = "alphamaker-snel"
+STANDAARD_MOTOR = "alphamaker-licht"
 # Opgeslagen keuzes van vóór deze standaard worden één keer naar de nieuwe standaard gezet.
-MOTOR_STANDAARD_VERSIE = 3
+MOTOR_STANDAARD_VERSIE = 4
 
 
 def motor_beschikbaar(motor):
