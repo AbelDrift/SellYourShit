@@ -2501,11 +2501,14 @@ class RegistreerTab(Gtk.Box):
 
     def _foto_mappen(self):
         """Welke fotomappen bestaan er nu in de werkmap?"""
+        from marktplaats_suite.fotoverwerking import lijst_fotos, heeft_witte_versie
         w = self._werkmap
         uit = {}
         if w:
             for sleutel in ("originelen", "transparant", "zonder_logo", "zonder_logo_bg"):
-                from marktplaats_suite.fotoverwerking import lijst_fotos
+                # zonder_logo bevat zonder witte achtergrond gewoon de foto zelf: dan geen 'white'
+                if sleutel == "zonder_logo" and not heeft_witte_versie(w):
+                    continue
                 f = lijst_fotos(os.path.join(w, sleutel))
                 if f:
                     uit[sleutel] = f

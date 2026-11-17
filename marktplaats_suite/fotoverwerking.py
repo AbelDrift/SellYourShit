@@ -28,6 +28,13 @@ from PIL import Image, ImageOps
 
 FOTO_EXT = (".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif")
 VERSIE_MAPPEN = ("transparant", "zonder_logo", "met_logo", "zonder_logo_bg", "met_logo_bg")
+# Markeringsbestand in zonder_logo/: daar staan witte achtergronden (anders de foto zelf, zie boven).
+WIT_MARKER = ".witte_achtergrond"
+
+
+def heeft_witte_versie(map_):
+    """Staan er in map_/zonder_logo foto's met een witte achtergrond?"""
+    return os.path.exists(os.path.join(map_, "zonder_logo", WIT_MARKER))
 HELPER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "achtergrond_helper.py")
 
 
@@ -318,6 +325,7 @@ def maak_versies(fotos, doelmap, opties, voortgang=None, stop=lambda: False):
             im.save(pad, **kw)
             uit.setdefault(sub, []).append(pad)
 
+        wit_gemaakt = False
         for i, prep in enumerate(voorbereid):
             if stop():
                 return uit, meld
@@ -346,6 +354,7 @@ def maak_versies(fotos, doelmap, opties, voortgang=None, stop=lambda: False):
                 if wit:
                     w = _naar_rgb(rgba)
                     bewaar("zonder_logo", w, naam + ".jpg", **jpg)
+                    wit_gemaakt = True
                     if met_logo:
                         bewaar("met_logo", _logo_en_watermerk(w, wm, lg), naam + ".jpg", **jpg)
                     del w
@@ -360,6 +369,8 @@ def maak_versies(fotos, doelmap, opties, voortgang=None, stop=lambda: False):
                         bewaar("met_logo_bg", _logo_en_watermerk(c, wm, lg), naam + ".jpg", **jpg)
                     del c
                 del rgba
+        if wit_gemaakt:
+            open(os.path.join(doelmap, "zonder_logo", WIT_MARKER), "w").close()
         if voortgang:
             voortgang(1.0, "Klaar")
         return uit, meld
