@@ -156,9 +156,10 @@ try:
     tik(5)
     controleer(len(t.fotos) == 2, "twee foto's in de preview")
     print("   motoren:", fv.beschikbare_motoren(), "| standaard:", t._standaard_foto_opties().get("motor"), flush=True)
-    controleer(fv.beschikbare_motoren() == ["alphamaker-licht", "alphamaker-zwaar"],
-               "Snel (IS-Net) en Drukke achtergrond (InSPyReNet) beschikbaar")
-    controleer(t._standaard_foto_opties().get("motor") == "alphamaker-licht", "Snel (IS-Net) is de standaard")
+    alle_drie = ["alphamaker-licht", "alphamaker-medium", "alphamaker-zwaar"]
+    if sys.platform == "win32":
+        controleer(fv.beschikbare_motoren() == alle_drie, "licht (IS-Net), medium (InSPyReNet) en zwaar (BiRefNet) beschikbaar")
+    controleer(t._standaard_foto_opties().get("motor") == "alphamaker-licht", "licht (IS-Net) is de standaard")
     if sys.platform == "win32":
         controleer(os.path.isfile(os.path.join(os.environ.get("ALPHAMAKER_MODELS", ""), "isnet-general.onnx")),
                    "meegeleverd IS-Net-model gevonden")
@@ -184,12 +185,16 @@ try:
                        f"{naam}: doorzichtige en dichte delen ({im.mode}, alfa {alfa})")
         schermafdruk(schermnaam, w)
 
-    verwerk_met(None, "Snel - IS-Net (standaard)", "2_snel_isnet.png")
-    verwerk_met("alphamaker-zwaar", "Drukke achtergrond - InSPyReNet", "2a_drukke_achtergrond.png")
+    verwerk_met(None, "licht - IS-Net (standaard)", "2_licht_isnet.png")
+    verwerk_met("alphamaker-medium", "medium - InSPyReNet", "2a_medium_inspyrenet.png")
+    if fv.motor_beschikbaar("alphamaker-zwaar"):
+        verwerk_met("alphamaker-zwaar", "zwaar - BiRefNet general", "2b_zwaar_birefnet.png")
     if sys.platform == "win32":
         modellen = os.environ.get("ALPHAMAKER_MODELS", "")
-        controleer(sorted(os.listdir(modellen)) == ["isnet-general.onnx"],
-                   f"niets gedownload: alleen het meegeleverde model ({sorted(os.listdir(modellen))})")
+        inhoud = sorted(os.listdir(modellen))
+        controleer(inhoud == ["hf", "isnet-general.onnx"], f"modellenmap: meegeleverd IS-Net + gedownload BiRefNet ({inhoud})")
+        controleer(os.path.isfile(os.path.join(modellen, "hf", "birefnet-general", "model.safetensors")),
+                   "BiRefNet general de eerste keer gedownload naar de programmamap")
         controleer(not os.path.exists(eigen_cache), "geen modellen in ~/.cache")
 
     stap("foto-editor (keuze van de motor)")

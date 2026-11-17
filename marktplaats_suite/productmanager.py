@@ -2795,9 +2795,14 @@ class RegistreerTab(Gtk.Box):
                 cfg = json.load(f)
         except (OSError, ValueError):
             cfg = {}
-        if cfg.get("achtergrond_motor_versie", 0) < MOTOR_STANDAARD_VERSIE:
-            # keuze van vóór de nieuwe standaard (Snel, IS-Net): één keer omzetten
-            cfg["achtergrond_motor"] = STANDAARD_MOTOR
+        versie = cfg.get("achtergrond_motor_versie", 0)
+        if versie < MOTOR_STANDAARD_VERSIE:
+            # keuze van vóór de nieuwe standaard (licht, IS-Net): één keer omzetten. In 3.1 heette
+            # InSPyReNet nog 'alphamaker-zwaar'; die keuze blijft InSPyReNet (nu 'medium').
+            if versie == 4 and cfg.get("achtergrond_motor") == "alphamaker-zwaar":
+                cfg["achtergrond_motor"] = "alphamaker-medium"
+            else:
+                cfg["achtergrond_motor"] = STANDAARD_MOTOR
             cfg["achtergrond_motor_versie"] = MOTOR_STANDAARD_VERSIE
         return cfg
 
@@ -2844,7 +2849,7 @@ class RegistreerTab(Gtk.Box):
         versies_lbl.set_xalign(0)
         box.pack_start(versies_lbl, False, False, 0)
 
-        # waarmee de achtergrond weggaat: snel (IS-Net, standaard) of drukke achtergrond (InSPyReNet)
+        # waarmee de achtergrond weggaat: licht (IS-Net, standaard), medium (InSPyReNet), zwaar (BiRefNet)
         motoren = beschikbare_motoren()
         motor_combo = Gtk.ComboBoxText()
         for m in motoren:

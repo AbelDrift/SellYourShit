@@ -32,23 +32,28 @@ HELPER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "achtergrond_h
 
 
 # Motoren voor het weghalen van de achtergrond: naam -> (label, uitleg, benodigde modules)
-# Alleen modellen die commercieel gebruikt mogen worden: de app maakt foto's klaar voor verkoop.
-# (RMBG-1.4, dat AlphaMaker voor objecten aanraadt, is alleen voor niet-commercieel gebruik.)
+# Drie standen, volgens het advies van AlphaMaker; allemaal commercieel toegestaan, want de app
+# maakt foto's klaar voor verkoop. (RMBG-1.4 is alleen voor niet-commercieel gebruik: niet gebruikt.)
 MOTOREN = {
     "alphamaker-licht": (
-        "Snel – effen achtergrond (IS-Net)",
-        "Snel en zuinig (±1 GB geheugen), voor producten op een effen achtergrond. "
-        "Commercieel gebruik toegestaan (Apache-2.0).",
+        "Licht – IS-Net",
+        "Snel (±3 s per foto) en zuinig (±1 GB geheugen). Voor producten op een effen "
+        "achtergrond. Licentie Apache-2.0.",
         ("onnxruntime", "scipy", "numpy")),
-    "alphamaker-zwaar": (
-        "Drukke achtergrond (InSPyReNet)",
-        "Het model van transparent-background, met de randcorrectie van AlphaMaker. Voor "
-        "rommelige achtergronden; trager en ±4 GB geheugen. Commercieel gebruik toegestaan (MIT).",
+    "alphamaker-medium": (
+        "Medium – InSPyReNet",
+        "Nauwkeuriger, ook bij een drukke achtergrond; het model van transparent-background. "
+        "Trager (±15 s per foto), ±4 GB geheugen. Licentie MIT.",
         ("transparent_background", "scipy", "numpy")),
+    "alphamaker-zwaar": (
+        "Zwaar – BiRefNet general",
+        "Het nauwkeurigst, vooral bij haar. Erg traag (±40 s per foto) en 5 GB geheugen of meer: "
+        "alleen voor pc's met 16 GB RAM. Het model wordt de eerste keer gedownload. Licentie MIT.",
+        ("torch", "timm", "kornia", "transformers", "safetensors", "einops", "scipy", "numpy")),
 }
 STANDAARD_MOTOR = "alphamaker-licht"
-# Opgeslagen keuzes van vóór deze standaard worden één keer naar de nieuwe standaard gezet.
-MOTOR_STANDAARD_VERSIE = 4
+# Opgeslagen keuzes van vóór deze standaard worden één keer omgezet (zie productmanager).
+MOTOR_STANDAARD_VERSIE = 5
 
 
 def motor_beschikbaar(motor):

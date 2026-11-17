@@ -38,7 +38,9 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 ; oude programmaonderdelen weg bij een update (je gegevens staan apart in AppData en blijven staan)
 Type: filesandordirs; Name: "{app}\python"
 Type: filesandordirs; Name: "{app}\gtk"
-Type: filesandordirs; Name: "{app}\modellen"
+; de modellenmap blijft staan: daar bewaart de app ook het BiRefNet-model dat het zelf downloadt
+; (stand zwaar). Meegeleverde modellen worden overschreven; het RMBG-1.4-model van versie 3.0 gaat weg.
+Type: files; Name: "{app}\modellen\alphamaker\rmbg-1.4.onnx"
 
 [Files]
 Source: "{#BronMap}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs

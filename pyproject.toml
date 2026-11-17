@@ -11,8 +11,10 @@ dependencies = ["pillow", "python-barcode", "openpyxl", "python-docx", "Send2Tra
                 "brother_ql", "selenium", "requests"]
 
 [project.optional-dependencies]
-# achtergrond weghalen: transparent-background, en AlphaMaker licht (IS-Net via onnxruntime)
-ai = ["transparent-background", "opencv-python", "numpy", "tqdm", "psutil", "scipy", "onnxruntime"]
+# achtergrond weghalen met AlphaMaker: licht (IS-Net via onnxruntime), medium (InSPyReNet via
+# transparent-background) en zwaar (BiRefNet via PyTorch: transformers<5, safetensors, einops)
+ai = ["transparent-background", "opencv-python", "numpy", "tqdm", "psutil", "scipy", "onnxruntime",
+      "transformers<5", "safetensors", "einops"]
 
 [project.scripts]
 marktplaats-suite = "marktplaats_suite.productmanager:main"

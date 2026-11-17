@@ -9,17 +9,16 @@ Overgenomen zonder wijzigingen: __init__.py, core.py, pt.py, refine.py.
 Niet overgenomen: de commandoregel en webpagina (__main__.py, static/), de webversie,
 de benchmark en de tests; die staan in de AlphaMaker-repository.
 
-SellYourShit gebruikt hieruit (via achtergrond_helper.py, in een apart proces) alleen modellen
-die commercieel gebruikt mogen worden, want de app maakt foto's klaar voor verkoop:
-  - Snel, effen achtergrond (standaard): model 'isnet-general' (IS-Net via ONNX Runtime,
-    Apache-2.0). Snel en zuinig (±1 GB geheugen).
-  - Drukke achtergrond: model 'inspyrenet' (InSPyReNet via transparent-background, MIT).
-    Trager en ±4 GB geheugen.
-  Bij allebei maakt AlphaMaker het masker op de originele maat en haalt het de kleur van de
+SellYourShit gebruikt hieruit (via achtergrond_helper.py, in een apart proces) drie standen,
+allemaal commercieel toegestaan, want de app maakt foto's klaar voor verkoop:
+  - Licht (standaard): model 'isnet-general' (IS-Net via ONNX Runtime, Apache-2.0).
+    ±3 s per foto bij 50%, ±1 GB geheugen.
+  - Medium: model 'inspyrenet' (InSPyReNet via transparent-background, MIT). ±15 s, ±4 GB.
+  - Zwaar: model 'birefnet-general' (BiRefNet via PyTorch, MIT). ±40 s, 5 GB of meer;
+    code en gewichten komen van Hugging Face op een vaste revisie (pt.py).
+  Bij alle drie maakt AlphaMaker het masker op de originele maat en haalt het de kleur van de
   oude achtergrond uit de randen ('blur fusion').
-  Niet gebruikt: RMBG-1.4 (AlphaMakers advies voor objecten): licentie van Bria, alleen
-  niet-commercieel gebruik. BiRefNet ('--type persoon', '--type auto'): traag (±40 s per foto)
-  en alleen zinvol voor portretten met veel haar.
+  Niet gebruikt: RMBG-1.4 (licentie van Bria: alleen niet-commercieel).
 
 Bijwerken: kopieer de vier bestanden uit een nieuwere AlphaMaker-versie hierheen en pas
 de commit hierboven aan.

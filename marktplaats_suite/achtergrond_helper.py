@@ -4,7 +4,8 @@ fotoverwerking.py start dit met:
     python -I achtergrond_helper.py --motor=NAAM bron1 doel1 bron2 doel2 ...
 Motoren (zie fotoverwerking.MOTOREN):
     alphamaker-licht         AlphaMaker met IS-Net (ONNX Runtime): snel, effen achtergrond (Apache-2.0)
-    alphamaker-zwaar         AlphaMaker met InSPyReNet (transparent-background): drukke achtergronden (MIT)
+    alphamaker-medium        AlphaMaker met InSPyReNet (transparent-background): drukke achtergronden (MIT)
+    alphamaker-zwaar         AlphaMaker met BiRefNet general (PyTorch): het nauwkeurigst, traag (MIT)
     transparent-background   InSPyReNet zonder AlphaMaker, zoals de oude Product Studio
 Bij AlphaMaker: masker op volle maat en randkleurcorrectie.
 Het model wordt één keer geladen en de foto's gaan één voor één. Per foto komt er een regel
@@ -56,12 +57,15 @@ def maak_verwerker(motor):
     if motor == "alphamaker-licht":
         core = _alphamaker()
         return lambda im: core.cutout(im, "isnet-general")
-    if motor == "alphamaker-zwaar":
+    if motor == "alphamaker-medium":
         core = _alphamaker()
         # Zelf het InSPyReNet-model klaarzetten: zo gebruikt AlphaMaker het meegeleverde model
         # (Windows) en alle processorkernen; AlphaMaker zelf maakt het zonder model-pad en met 4 aan.
         core._pt["inspyrenet"] = _remover()
         return lambda im: core.cutout(im, "inspyrenet")
+    if motor == "alphamaker-zwaar":
+        core = _alphamaker()
+        return lambda im: core.cutout(im, "birefnet-general")
     raise ValueError(f"onbekende motor: {motor}")
 
 
