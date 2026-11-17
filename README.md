@@ -151,9 +151,15 @@ De brug in de Suite luistert alleen op 127.0.0.1 en accepteert alleen verzoeken 
 
    AlphaMaker maakt het masker steeds op volle maat en haalt de kleur van de oude achtergrond uit de randen.
 
-   Dat gebeurt in een apart proces, één foto tegelijk; je keuze wordt onthouden. Hier kun je ook roteren
+   Dat gebeurt in een apart proces, één foto tegelijk; je keuze wordt onthouden. Vooraf kijkt de app of
+   er genoeg geheugen vrij is (licht ±1,2 GB, medium ±4,5 GB, zwaar ±6 GB); is dat niet zo, dan krijg je
+   meteen een melding. Raakt het geheugen tijdens het werk toch op, dan stopt alleen dat proces (op
+   Linux in een eigen systemd-scope) en blijven de app en de terminal open. Hier kun je ook roteren
    (inspecteren) of de foto's openen in GIMP. De keuzes onder de preview (original / transparant /
    white / custom bg) laten zien welke versie je bekijkt.
+
+   Logo als watermerk: heb je geen eigen watermerk, vink dan *Logo als watermerk* aan. Je logo komt dan
+   9 keer (3 × 3) over de foto, in zwart-wit en 5% zichtbaar.
 4. **💾 Product registreren**: artikelnummer, productmap, barcode en alle foto's komen in één keer
    op hun plek (`originelen/`, `zonder_logo/`, `met_logo/`, ...). Het artikelnummer komt als
    `* Artikelnummer:` onderaan de details in de advertentietekst.

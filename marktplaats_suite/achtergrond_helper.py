@@ -18,6 +18,18 @@ import sys
 # Pad naar een meegeleverd transparent-background-model (Windows-installatie); anders downloadt
 # transparent-background het de eerste keer zelf naar ~/.transparent-background.
 MODEL_VAR = "SELLYOURSHIT_TB_CKPT"
+# Grotere foto's gaan eerst naar dit aantal pixels: het masker en de randkleurcorrectie werken op
+# volle maat, en bij 30+ megapixel kost dat vele GB's. De app schaalt het resultaat weer terug.
+MAX_PIXELS = 8_000_000
+
+
+def _eerst_weg_bij_geheugentekort():
+    """Raakt het geheugen op, laat Linux dan dit proces wegdoen en niet de app of een ander programma."""
+    try:
+        with open("/proc/self/oom_score_adj", "w") as f:
+            f.write("800")
+    except OSError:
+        pass
 
 
 def _remover():
@@ -77,6 +89,7 @@ def main(argv):
     motor = "transparent-background"
     if argv and argv[0].startswith("--motor="):
         motor, argv = argv[0].split("=", 1)[1], argv[1:]
+    _eerst_weg_bij_geheugentekort()
     from PIL import Image
 
     verwerk = maak_verwerker(motor)
@@ -85,6 +98,9 @@ def main(argv):
         try:
             with Image.open(bron) as im:
                 im.load()
+                if im.width * im.height > MAX_PIXELS:
+                    f = (MAX_PIXELS / (im.width * im.height)) ** 0.5
+                    im = im.resize((max(1, int(im.width * f)), max(1, int(im.height * f))), Image.LANCZOS)
                 uit = verwerk(im)
             uit.save(doel, "PNG")
             print(f"KLAAR {nr}", flush=True)

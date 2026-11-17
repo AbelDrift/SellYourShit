@@ -63,6 +63,58 @@ STANDAARD_MOTOR = "alphamaker-licht"
 MOTOR_STANDAARD_VERSIE = 5
 
 
+# Ongeveer nodig vrij werkgeheugen per motor in GB (gemeten: licht 0,9, medium 3,9; zwaar 5+).
+GEHEUGEN_NODIG = {"alphamaker-licht": 1.2, "alphamaker-medium": 4.5, "alphamaker-zwaar": 6.0}
+
+
+def _geheugen():
+    """(vrij, totaal) in bytes, met vrij = beschikbaar werkgeheugen plus vrije swap; None als onbekend."""
+    try:
+        info = {}
+        with open("/proc/meminfo") as f:
+            for regel in f:
+                naam, _, rest = regel.partition(":")
+                if rest.split():
+                    info[naam] = int(rest.split()[0]) * 1024
+        return info["MemAvailable"] + info.get("SwapFree", 0), info["MemTotal"]
+    except (OSError, KeyError, ValueError):
+        pass
+    try:
+        import psutil
+        return psutil.virtual_memory().available + psutil.swap_memory().free, psutil.virtual_memory().total
+    except Exception:
+        return None
+
+
+def _gb(n):
+    return f"{n / 2 ** 30:.1f}".replace(".", ",")
+
+
+_scope = None
+
+
+def _eigen_scope():
+    """Begin van de opdracht die het hulpproces in een eigen systemd-scope start, of [] (geen systemd).
+
+    Haalt Linux bij een geheugentekort een proces weg, dan sluit systemd daarna de hele scope waar
+    dat proces in zat. Zonder eigen scope is dat die van de app, of van de terminal waaruit de app
+    gestart is: dan verdwijnen app en terminal mee. In een eigen scope stopt alleen het hulpproces."""
+    global _scope
+    if _scope is None:
+        _scope = []
+        prog = shutil.which("systemd-run") if sys.platform.startswith("linux") else None
+        if prog:
+            cmd = [prog, "--user", "--scope", "--quiet", "--collect",
+                   "--description=SellYourShit: achtergrond verwijderen"]
+            try:
+                if subprocess.run(cmd + ["true"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                  stderr=subprocess.DEVNULL, timeout=15).returncode == 0:
+                    _scope = cmd
+            except (OSError, subprocess.SubprocessError):
+                pass
+    return _scope
+
+
 def motor_beschikbaar(motor):
     if motor not in MOTOREN:
         return False
@@ -113,10 +165,40 @@ def _achtergrond_afbeelding(pad, grootte):
     return bg.crop((l, t, l + w, t + h))
 
 
-def _logo_en_watermerk(jpg, watermerk, logo):
-    """Watermerk over de hele foto, logo rechtsboven (max. 25% van de breedte)."""
+# Logo als watermerk: zo vaak over de foto (raster), zwart-wit en zo zichtbaar
+LOGO_WATERMERK_RASTER = 3          # 3 x 3 = 9 keer
+LOGO_WATERMERK_ZICHTBAAR = 0.05    # 5% zichtbaar (95% doorzichtig)
+
+
+def _logo_als_watermerk(maat, logo):
+    """Watermerk van maat (b, h) uit het logo: het logo in zwart-wit, 9x verspreid over de foto
+    (3 x 3, elk logo in het midden van zijn vak, maximaal 60% van het vak) en 5% zichtbaar."""
+    b, h = maat
+    with Image.open(logo) as l:
+        lg = l.convert("RGBA")
+    n = LOGO_WATERMERK_RASTER
+    vak_b, vak_h = b / n, h / n
+    schaal = min(vak_b * 0.6 / lg.width, vak_h * 0.6 / lg.height)
+    lg = lg.resize((max(1, round(lg.width * schaal)), max(1, round(lg.height * schaal))), Image.LANCZOS)
+    grijs = lg.convert("L")                                          # zwart-wit
+    alfa = lg.getchannel("A").point(lambda a: round(a * LOGO_WATERMERK_ZICHTBAAR))
+    tegel = Image.merge("RGBA", (grijs, grijs, grijs, alfa))
+    laag = Image.new("RGBA", (b, h), (0, 0, 0, 0))
+    for rij in range(n):
+        for kolom in range(n):
+            x = round(kolom * vak_b + (vak_b - tegel.width) / 2)
+            y = round(rij * vak_h + (vak_h - tegel.height) / 2)
+            laag.alpha_composite(tegel, (max(0, x), max(0, y)))
+    return laag
+
+
+def _logo_en_watermerk(jpg, watermerk, logo, logo_als_watermerk=False):
+    """Watermerk over de hele foto, logo rechtsboven (max. 25% van de breedte).
+    Met logo_als_watermerk wordt het watermerk uit het logo gemaakt (zie _logo_als_watermerk)."""
     basis = jpg.convert("RGBA")
-    if watermerk and os.path.exists(watermerk):
+    if logo_als_watermerk and logo and os.path.exists(logo):
+        basis = Image.alpha_composite(basis, _logo_als_watermerk(basis.size, logo))
+    elif watermerk and os.path.exists(watermerk):
         with Image.open(watermerk) as w:
             wm = w.convert("RGBA").resize(basis.size, Image.LANCZOS)
         basis = Image.alpha_composite(basis, wm)
@@ -159,12 +241,30 @@ def verwijder_achtergrond(paden, uitmap, voortgang=None, stop=lambda: False, mot
     kan starten of halverwege wegvalt (bijvoorbeeld door te weinig geheugen)."""
     if not motor_beschikbaar(motor):
         from marktplaats_suite.common import installatie_hint
-        naam = MOTOREN[motor][0] if motor in MOTOREN else motor
-        raise RuntimeError(f"{naam} is niet geïnstalleerd ({installatie_hint(ai=True)}).")
+        raise RuntimeError(f"{MOTOREN[motor][0] if motor in MOTOREN else motor} is niet geïnstalleerd "
+                           f"({installatie_hint(ai=True)}).")
+    naam = MOTOREN[motor][0] if motor in MOTOREN else motor
+    kort = naam.split(" – ")[0]
+    nodig = GEHEUGEN_NODIG.get(motor, 0) * 2 ** 30
+    if motor == "alphamaker-licht":
+        advies = "Sluit andere programma's (bijvoorbeeld de browser) of zet 'Verkleinen naar 50%' aan."
+    else:
+        advies = ("Sluit andere programma's (bijvoorbeeld de browser) of kies in de foto-editor een "
+                  "lichtere stand.")
+    geheugen = _geheugen()
+    if geheugen and nodig and geheugen[0] < nodig * 0.8:
+        raise RuntimeError(f"Te weinig vrij geheugen voor {naam}: er is {_gb(geheugen[0])} GB vrij en "
+                           f"{kort} heeft ongeveer {_gb(nodig)} GB nodig. {advies}")
+    # Wordt het geheugen toch bijna vol, dan stopt de app het hulpproces zelf, vóór Linux ingrijpt.
+    drempel = max(300 * 2 ** 20, geheugen[1] * 4 // 100) if geheugen else 0
     os.makedirs(uitmap, exist_ok=True)
     doelen = [os.path.join(uitmap, os.path.splitext(os.path.basename(p))[0] + ".png") for p in paden]
     args = [x for paar in zip(paden, doelen) for x in paar]
     env = {k: v for k, v in os.environ.items() if not k.startswith("QT_")}
+    if sys.platform.startswith("linux"):
+        # vrijgegeven geheugen meteen teruggeven: scheelt bij medium ±250 MB piek en 400 MB daarna
+        env.setdefault("MALLOC_MMAP_THRESHOLD_", "262144")
+        env.setdefault("MALLOC_TRIM_THRESHOLD_", "262144")
     gelukt, meld = {}, []
 
     def verwerk(regel):
@@ -192,31 +292,39 @@ def verwijder_achtergrond(paden, uitmap, voortgang=None, stop=lambda: False, mot
             python = kandidaat
         extra["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     with tempfile.TemporaryFile(mode="w+", encoding="utf-8", errors="replace") as foutlog:
-        proc = subprocess.Popen([python, "-I", HELPER, f"--motor={motor}"] + args, stdout=subprocess.PIPE, stderr=foutlog,
+        proc = subprocess.Popen(_eigen_scope() + [python, "-I", HELPER, f"--motor={motor}"] + args,
+                                stdout=subprocess.PIPE, stderr=foutlog,
                                 stdin=subprocess.DEVNULL, text=True, encoding="utf-8", errors="replace",
                                 env=env, **extra)
         regels = queue.Queue()
         lezer = threading.Thread(target=_lees_regels, args=(proc.stdout, regels), daemon=True)
         lezer.start()
+        vol = False
         while True:
             try:
-                verwerk(regels.get(timeout=0.3))
-                continue
+                verwerk(regels.get(timeout=0.25))
             except queue.Empty:
                 pass
             if stop():
                 proc.kill()
                 proc.wait()
                 return gelukt, meld
+            if drempel and not vol:
+                nu = _geheugen()
+                if nu and nu[0] < drempel:
+                    vol = True
+                    proc.kill()
             if not lezer.is_alive():
                 break
         while not regels.empty():
             verwerk(regels.get())
         code = proc.wait()
         if code != 0:
-            if code in (-9, 3221225495):   # SIGKILL (geheugenbewaking Linux) / STATUS_NO_MEMORY (Windows)
-                raise RuntimeError("Achtergrond verwijderen is afgebroken door te weinig geheugen. "
-                                   "Zet 'Verkleinen naar 50%' aan of gebruik minder foto's tegelijk.")
+            if vol or code in (-9, 3221225495):   # SIGKILL (geheugentekort Linux) / STATUS_NO_MEMORY (Windows)
+                vrij = f" (bij de start was er {_gb(geheugen[0])} GB vrij)" if geheugen else ""
+                hoeveel = f" {kort} heeft ongeveer {_gb(nodig)} GB nodig." if nodig else ""
+                raise RuntimeError(f"Achtergrond verwijderen met {naam} is gestopt: het werkgeheugen raakte "
+                                   f"vol{vrij}.{hoeveel} {advies}")
             foutlog.seek(0)
             staart = foutlog.read()[-600:].strip()
             raise RuntimeError(f"Achtergrond verwijderen mislukt (code {code}).\n{staart}")
@@ -231,6 +339,7 @@ def maak_versies(fotos, doelmap, opties, voortgang=None, stop=lambda: False):
          motor (str, zie MOTOREN)            -> waarmee de achtergrond weggaat
          bg_kleur ('#rrggbb') of bg_afbeelding (pad)  -> voor 'custom'
          watermerk, logo (paden)
+         logo_als_watermerk (bool)           -> watermerk uit het logo maken (9x, zwart-wit, 5%)
        Geeft (uit, meldingen) terug; uit = {"mapnaam": [paden]}."""
     n = len(fotos)
     meld = []
@@ -308,6 +417,7 @@ def maak_versies(fotos, doelmap, opties, voortgang=None, stop=lambda: False):
 
         # 4. versies maken, één foto tegelijk
         wm, lg = opties.get("watermerk"), opties.get("logo")
+        lwm = bool(opties.get("logo_als_watermerk"))
         met_logo = bool(opties.get("met_logo") and ((wm and os.path.exists(wm)) or (lg and os.path.exists(lg))))
         if opties.get("met_logo") and not met_logo:
             meld.append("Geen logo of watermerk gekozen: versies met logo overgeslagen.")
@@ -341,7 +451,7 @@ def maak_versies(fotos, doelmap, opties, voortgang=None, stop=lambda: False):
             if basis is not None:
                 bewaar("zonder_logo", basis, naam + ".jpg", **jpg)
                 if met_logo:
-                    bewaar("met_logo", _logo_en_watermerk(basis, wm, lg), naam + ".jpg", **jpg)
+                    bewaar("met_logo", _logo_en_watermerk(basis, wm, lg, lwm), naam + ".jpg", **jpg)
                 del basis
             if png:
                 with Image.open(png) as tim:
@@ -356,7 +466,7 @@ def maak_versies(fotos, doelmap, opties, voortgang=None, stop=lambda: False):
                     bewaar("zonder_logo", w, naam + ".jpg", **jpg)
                     wit_gemaakt = True
                     if met_logo:
-                        bewaar("met_logo", _logo_en_watermerk(w, wm, lg), naam + ".jpg", **jpg)
+                        bewaar("met_logo", _logo_en_watermerk(w, wm, lg, lwm), naam + ".jpg", **jpg)
                     del w
                 if custom:
                     if bg_afb:
@@ -366,7 +476,7 @@ def maak_versies(fotos, doelmap, opties, voortgang=None, stop=lambda: False):
                         c = _naar_rgb(rgba, bg_rgb)
                     bewaar("zonder_logo_bg", c, naam + ".jpg", **jpg)
                     if met_logo:
-                        bewaar("met_logo_bg", _logo_en_watermerk(c, wm, lg), naam + ".jpg", **jpg)
+                        bewaar("met_logo_bg", _logo_en_watermerk(c, wm, lg, lwm), naam + ".jpg", **jpg)
                     del c
                 del rgba
         if wit_gemaakt:

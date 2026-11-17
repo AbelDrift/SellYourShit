@@ -2927,6 +2927,12 @@ class RegistreerTab(Gtk.Box):
         rij2.attach(wm, 1, 0, 1, 1)
         rij2.attach(Gtk.Label(label="Logo:", xalign=0), 0, 1, 1, 1)
         rij2.attach(lg, 1, 1, 1, 1)
+        chk_logo_wm = Gtk.CheckButton(label="Logo als watermerk (geen eigen watermerk nodig)")
+        chk_logo_wm.set_tooltip_text("Het logo komt 9 keer over de foto, in zwart-wit en 5% zichtbaar")
+        chk_logo_wm.set_active(cfg.get("logo_als_watermerk", False))
+        chk_logo_wm.connect("toggled", lambda c: wm.set_sensitive(not c.get_active()))
+        wm.set_sensitive(not chk_logo_wm.get_active())
+        rij2.attach(chk_logo_wm, 0, 2, 2, 1)
         box.pack_start(rij2, False, False, 0)
 
         box.pack_start(Gtk.Separator(), False, False, 4)
@@ -2975,6 +2981,7 @@ class RegistreerTab(Gtk.Box):
             "bg_kleur": "#%02x%02x%02x" % tuple(int(c * 255) for c in (kleur.get_rgba().red, kleur.get_rgba().green, kleur.get_rgba().blue)),
             "bg_afbeelding": bg_img.get_filename() or "",
             "watermerk": wm.get_filename() or "", "logo": lg.get_filename() or "",
+            "logo_als_watermerk": chk_logo_wm.get_active(),
         }
         dlg.destroy()
         cfg_nieuw = {"resize_50": opties["verkleinen"]}
@@ -2987,6 +2994,7 @@ class RegistreerTab(Gtk.Box):
             "achtergrond_motor_versie": MOTOR_STANDAARD_VERSIE,
             "background_color": opties["bg_kleur"], "background_image": opties["bg_afbeelding"],
             "watermark_path": opties["watermerk"], "logo_path": opties["logo"],
+            "logo_als_watermerk": opties["logo_als_watermerk"],
         })
         if antwoord != Gtk.ResponseType.OK:
             return
@@ -5302,7 +5310,7 @@ class DashboardTab(Gtk.Box):
             cat_text = ""
             for cat, count in sorted_cats[:10]:
                 percentage = (count / totaal * 100) if totaal > 0 else 0
-                cat_text += f"<b>{cat}:</b> {count} ({percentage:.1f}%)\n"
+                cat_text += f"<b>{GLib.markup_escape_text(str(cat))}:</b> {count} ({percentage:.1f}%)\n"
 
             if not cat_text:
                 cat_text = "Geen categorieën gevonden."
@@ -5692,7 +5700,7 @@ class DashboardDialog(Gtk.Dialog):
         cat_text = ""
         for cat, count in sorted_cats[:10]:
             percentage = (count / totaal * 100) if totaal > 0 else 0
-            cat_text += f"<b>{cat}:</b> {count} ({percentage:.1f}%)\n"
+            cat_text += f"<b>{GLib.markup_escape_text(str(cat))}:</b> {count} ({percentage:.1f}%)\n"
 
         if not cat_text:
             cat_text = "Geen categorieën gevonden."
