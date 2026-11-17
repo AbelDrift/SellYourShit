@@ -59,10 +59,9 @@ def auto_enhance(image_path, output_path):
     lab = cv2.merge((l, a, b))
     img = cv2.cvtColor(lab, cv2.COLOR_LAB2RGB)
 
-    # ---------------------------------
-    # 6. Kleine ruisreductie
-    # ---------------------------------
-    img = cv2.fastNlMeansDenoisingColored(img, None, 3, 3, 7, 21)
+    # Geen ruisonderdrukking meer (fastNlMeansDenoisingColored): die kostte per foto ±2,3 s,
+    # langer dan het weghalen van de achtergrond, en streek de verscherping van stap 4 weer glad.
+    # Telefoons halen de ruis zelf al uit hun foto's.
 
     # opslaan
     result = Image.fromarray(img)

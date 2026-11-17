@@ -19,11 +19,8 @@ PT = {
 
 
 def available():
-    try:
-        import torch, timm, kornia, transformers, safetensors  # noqa: F401
-        return True
-    except ImportError:
-        return False
+    # alleen opzoeken, niet importeren: torch + transformers laden kost seconden bij elke start
+    return all(importlib.util.find_spec(m) for m in ('torch', 'timm', 'kornia', 'transformers', 'safetensors'))
 
 
 def _fetch(repo, rev, dst):

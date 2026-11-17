@@ -38,7 +38,8 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 ; oude programmaonderdelen weg bij een update (je gegevens staan apart in AppData en blijven staan)
 Type: filesandordirs; Name: "{app}\python"
 Type: filesandordirs; Name: "{app}\gtk"
-Type: filesandordirs; Name: "{app}\modellen"
+; {app}\modellen blijft staan: daar komt ook het RMBG-1.4-model dat de app zelf downloadt
+; (dat mag niet worden meegeleverd); de meegeleverde modellen worden gewoon overschreven.
 
 [Files]
 Source: "{#BronMap}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs

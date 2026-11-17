@@ -2,24 +2,26 @@ AlphaMaker - meegeleverd in SellYourShit
 =========================================
 
 Bron:    https://github.com/AbelDrift/AlphaMaker
-Versie:  commit 6917308 (17 november 2026)
+Versie:  commit 7bbfc14 (17 november 2026)
 Licentie: MIT (zie LICENSE in deze map)
 
 Overgenomen zonder wijzigingen: __init__.py, core.py, pt.py, refine.py.
 Niet overgenomen: de commandoregel en webpagina (__main__.py, static/), de webversie,
 de benchmark en de tests; die staan in de AlphaMaker-repository.
 
-SellYourShit gebruikt hieruit (via achtergrond_helper.py, in een apart proces):
-  - AlphaMaker zwaar (standaard): model 'inspyrenet' (InSPyReNet via transparent-background,
-    MIT), de standaard van AlphaMaker zelf: het veiligste compromis, geen missers op
-    portretten. ±4 GB geheugen.
-  - AlphaMaker licht: model 'isnet-general' (IS-Net via ONNX Runtime, Apache-2.0),
-    weinig geheugen (~1 GB) en snel.
-  Bij allebei maakt AlphaMaker het masker op de originele maat en haalt het de kleur van de
+SellYourShit gebruikt hieruit (via achtergrond_helper.py, in een apart proces), volgens het
+advies van AlphaMaker voor productfoto's (verslag van 17 november 2026):
+  - Snel, effen achtergrond (standaard): model 'rmbg-1.4' (RMBG-1.4 via ONNX Runtime). Op
+    objecten het beste en snelste model (randfout 0,066). Licentie van Bria: alleen
+    niet-commercieel gebruik. Wordt de eerste keer gedownload (176 MB).
+  - Drukke achtergrond: model 'inspyrenet' (InSPyReNet via transparent-background, MIT).
+    Trager en ±4 GB geheugen.
+  - Snel, ook zakelijk: model 'isnet-general' (IS-Net, Apache-2.0). Iets minder nauwkeurig
+    op objecten (0,094), wel commercieel te gebruiken.
+  Bij allemaal maakt AlphaMaker het masker op de originele maat en haalt het de kleur van de
   oude achtergrond uit de randen ('blur fusion').
-  Niet gebruikt: RMBG-1.4 ('--type object', ook via de router van '--type auto'), want dat
-  model is alleen voor niet-commercieel gebruik; BiRefNet ('--type persoon') vraagt extra
-  pakketten en een download van honderden MB's.
+  Niet gebruikt: BiRefNet ('--type persoon', '--type auto'): traag (±40 s per foto) en alleen
+  zinvol voor portretten met veel haar.
 
 Bijwerken: kopieer de vier bestanden uit een nieuwere AlphaMaker-versie hierheen en pas
 de commit hierboven aan.

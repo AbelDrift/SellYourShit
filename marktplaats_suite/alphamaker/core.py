@@ -108,10 +108,9 @@ def kind(img):
 
 
 # veilig compromis (0 missers op portretten, MIT); objecten: rmbg-1.4, haar: birefnet-general (zie README)
-try:
-    import transparent_background  # noqa: F401
+if __import__('importlib.util').util.find_spec('transparent_background'):  # opzoeken zonder torch te laden
     DEFAULT_MODEL = 'inspyrenet'
-except ImportError:
+else:
     DEFAULT_MODEL = 'birefnet-general' if pt.available() else 'isnet-general'
 SEGMENTERS = ['inspyrenet'] + [m for m in MODELS if not m.startswith(('vitmatte', 'wbg'))] + list(pt.PT)
 MAX_PIXELS = 50_000_000              # zelfde plafond als remove.bg

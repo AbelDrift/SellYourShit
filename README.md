@@ -28,7 +28,7 @@ git clone https://github.com/AbelDrift/SellYourShit.git
 cd SellYourShit
 ./install.sh                 # basis
 ./install.sh --met-chrome    # + Google Chrome (amd64) voor de Automater
-./install.sh --met-ai        # + AI-achtergrondverwijdering: AlphaMaker zwaar en licht, transparent-background (groot: torch)
+./install.sh --met-ai        # + AI-achtergrondverwijdering met AlphaMaker (RMBG-1.4, InSPyReNet, IS-Net; groot: torch)
 ```
 
 Wat het doet: apt-pakketten (`python3-gi`, `gir1.2-gtk-3.0`, `imagemagick`, …), een eigen
@@ -44,8 +44,9 @@ Verwijderen: `./uninstall.sh` (`--alles` wist ook je gegevens).
    `%LOCALAPPDATA%\Programs\SellYourShit`, met een snelkoppeling in het Startmenu (en desgewenst op het bureaublad).
    Zegt Windows *"Windows heeft uw pc beschermd"*? Het installatieprogramma is niet digitaal ondertekend:
    klik op **Meer informatie** en dan **Toch uitvoeren**.
-3. Klaar. Alles zit erin: Python, GTK, het weghalen van de achtergrond (AlphaMaker zwaar en licht en
-   transparent-background, op de processor; de modellen worden meegeleverd) en printen via elke Windows-printer.
+3. Klaar. Alles zit erin: Python, GTK, het weghalen van de achtergrond met AlphaMaker (op de processor) en
+   printen via elke Windows-printer. De modellen InSPyReNet en IS-Net worden meegeleverd; RMBG-1.4 (de standaard)
+   mag niet worden meegeleverd en wordt de eerste keer gedownload (176 MB).
 
 - **Bijwerken:** download de nieuwe setup.exe en voer hem uit; je producten en instellingen blijven staan.
 - **Verwijderen:** Windows-instellingen → Apps → SellYourShit. Je gegevens blijven staan.
@@ -138,11 +139,15 @@ De brug in de Suite luistert alleen op 127.0.0.1 en accepteert alleen verzoeken 
 3. **🖼️ Foto editor**: voorbewerking zoals in de oude Product Studio (verkleinen naar 50% en
    automatisch kleuren verbeteren; geldt ook als je de editor niet opent) en optioneel extra versies:
    transparant, witte achtergrond, eigen achtergrond (kleur of afbeelding), en die versies ook met
-   logo/watermerk. Bij **Achtergrond weghalen met** kies je (uit [AlphaMaker](https://github.com/AbelDrift/AlphaMaker)):
-   - **AlphaMaker zwaar** (standaard): InSPyReNet met het masker op volle maat en zonder gekleurde rand van de
-     oude achtergrond. Beste kwaliteit, ±4 GB geheugen;
-   - **AlphaMaker licht**: IS-Net via ONNX Runtime, snel en zuinig (±1 GB geheugen);
-   - **transparent-background**: InSPyReNet zoals vroeger, zonder de correcties van AlphaMaker.
+   logo/watermerk. Bij **Achtergrond weghalen met** kies je (met [AlphaMaker](https://github.com/AbelDrift/AlphaMaker),
+   volgens het advies uit de AlphaMaker-benchmark):
+   - **Snel – effen achtergrond (RMBG-1.4)**, standaard: het beste en snelste model voor producten en objecten
+     (±3 s per telefoonfoto na verkleinen). Licentie van Bria: alleen niet-commercieel gebruik;
+   - **Drukke achtergrond (InSPyReNet)**: het model van transparent-background, voor rommelige achtergronden.
+     Trager, ±4 GB geheugen;
+   - **Snel, ook zakelijk (IS-Net)**: iets minder nauwkeurig op objecten, maar commercieel gebruik mag (Apache-2.0).
+
+   AlphaMaker maakt het masker steeds op volle maat en haalt de kleur van de oude achtergrond uit de randen.
 
    Dat gebeurt in een apart proces, één foto tegelijk; je keuze wordt onthouden. Hier kun je ook roteren
    (inspecteren) of de foto's openen in GIMP. De keuzes onder de preview (original / transparant /
@@ -159,11 +164,12 @@ De brug in de Suite luistert alleen op 127.0.0.1 en accepteert alleen verzoeken 
   ChatGPT, DeepSeek of de Gemini-site en plak het antwoord terug (ook via **📋 Plak AI-tekst**).
 
 Voor transparant/wit/eigen achtergrond is achtergrondverwijdering nodig: installeer met
-`./install.sh --met-ai` (AlphaMaker zwaar en licht, transparent-background). Het model van AlphaMaker licht
-(±170 MB) haalt install.sh alvast op naar `~/.cache/alphamaker`; dat van InSPyReNet (zwaar en
-transparent-background, ±370 MB) wordt de eerste keer gedownload. AlphaMaker zelf zit in de app
-(`marktplaats_suite/alphamaker`, MIT, zie `BRON.txt` daar). RMBG-1.4, dat AlphaMaker voor objecten
-aanbeveelt, zit er bewust niet in: dat model is alleen voor niet-commercieel gebruik.
+`./install.sh --met-ai`. Die haalt de modellen RMBG-1.4 en IS-Net (elk ±170 MB) alvast op naar
+`~/.cache/alphamaker`; dat van InSPyReNet (±370 MB) wordt de eerste keer gedownload. AlphaMaker zelf zit in
+de app (`marktplaats_suite/alphamaker`, MIT, zie `BRON.txt` daar).
+
+*Kleuren verbeteren* doet contrast, kleur, helderheid, verscherpen en CLAHE. De ruisonderdrukking is eruit:
+die kostte per foto ±2,3 s, langer dan het weghalen van de achtergrond.
 
 ## Product Management
 

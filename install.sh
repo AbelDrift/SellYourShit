@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SellYourShit - installatie voor Debian (11+) en Ubuntu (22.04+) en afgeleiden.
 # Gebruik:  ./install.sh [--met-ai] [--met-chrome]
-#   --met-ai      ook AI-achtergrondverwijdering (AlphaMaker zwaar en licht, transparent-background, opencv; groot!)
+#   --met-ai      ook AI-achtergrondverwijdering (AlphaMaker met RMBG-1.4, InSPyReNet en IS-Net; opencv; groot!)
 #   --met-chrome  Google Chrome installeren (alleen amd64) voor de Automater
 set -euo pipefail
 
@@ -51,21 +51,24 @@ fi
 "$VENV/bin/python" -m pip uninstall -y rembg >/dev/null 2>&1 || true
 
 if [ "$MET_AI" -eq 1 ]; then
-  # AlphaMaker zelf zit in de app; alleen het model (IS-Net, ±170 MB) alvast ophalen, anders doet
-  # de app dat de eerste keer zelf.
+  # AlphaMaker zelf zit in de app; alleen de modellen alvast ophalen, anders doet de app dat de
+  # eerste keer zelf. RMBG-1.4 (standaard, Snel) en IS-Net (Snel, ook zakelijk), elk ±170 MB.
   AM_DIR="${ALPHAMAKER_MODELS:-$HOME/.cache/alphamaker}"
-  if [ ! -f "$AM_DIR/isnet-general.onnx" ]; then
-    echo "==> Model voor AlphaMaker licht (IS-Net, ±170 MB)"
+  haal_model() {   # naam url [sha256]
+    [ -f "$AM_DIR/$1.onnx" ] && return 0
+    echo "==> Model $1 voor AlphaMaker (±170 MB)"
     mkdir -p "$AM_DIR"
-    if wget -q --show-progress -O "$AM_DIR/isnet-general.onnx.part" \
-         https://github.com/danielgatis/rembg/releases/download/v0.0.0/isnet-general-use.onnx \
-       && echo "60920e99c45464f2ba57bee2ad08c919a52bbf852739e96947fbb4358c0d964a  $AM_DIR/isnet-general.onnx.part" | sha256sum -c --quiet -; then
-      mv "$AM_DIR/isnet-general.onnx.part" "$AM_DIR/isnet-general.onnx"
+    if wget -q --show-progress -O "$AM_DIR/$1.onnx.part" "$2" \
+       && { [ -z "${3:-}" ] || echo "$3  $AM_DIR/$1.onnx.part" | sha256sum -c --quiet -; }; then
+      mv "$AM_DIR/$1.onnx.part" "$AM_DIR/$1.onnx"
     else
-      rm -f "$AM_DIR/isnet-general.onnx.part"
+      rm -f "$AM_DIR/$1.onnx.part"
       echo "   (downloaden lukte niet: de app haalt het model de eerste keer zelf op)"
     fi
-  fi
+  }
+  haal_model rmbg-1.4 https://huggingface.co/briaai/RMBG-1.4/resolve/main/onnx/model.onnx
+  haal_model isnet-general https://github.com/danielgatis/rembg/releases/download/v0.0.0/isnet-general-use.onnx \
+    60920e99c45464f2ba57bee2ad08c919a52bbf852739e96947fbb4358c0d964a
 fi
 
 echo "==> Starters"

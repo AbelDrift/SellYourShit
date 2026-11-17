@@ -92,7 +92,7 @@ def foreground(rgb, alpha, r=(90, 6)):
         box = lambda x: np.stack([uniform_filter(x[..., c], size=k, mode='reflect') for c in range(x.shape[-1])], -1)
         blur_a = box(a)
         blur_F = box(F * a) / (blur_a + 1e-5)
-        blur_B = box(B * (1 - a)) / (box(1 - a) + 1e-5)
+        blur_B = box(B * (1 - a)) / (1 - blur_a + 1e-5)  # box(1 - a) = 1 - box(a)
         F = (blur_F + a * (rgb - a * blur_F - (1 - a) * blur_B)).clip(0, 1)
         B = blur_B
     return F.astype(np.float32)

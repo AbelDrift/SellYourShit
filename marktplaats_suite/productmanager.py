@@ -2796,7 +2796,7 @@ class RegistreerTab(Gtk.Box):
         except (OSError, ValueError):
             cfg = {}
         if cfg.get("achtergrond_motor_versie", 0) < MOTOR_STANDAARD_VERSIE:
-            # keuze van vóór de nieuwe standaard (AlphaMaker zwaar): één keer omzetten
+            # keuze van vóór de nieuwe standaard (AlphaMaker snel, RMBG-1.4): één keer omzetten
             cfg["achtergrond_motor"] = STANDAARD_MOTOR
             cfg["achtergrond_motor_versie"] = MOTOR_STANDAARD_VERSIE
         return cfg
@@ -2844,7 +2844,7 @@ class RegistreerTab(Gtk.Box):
         versies_lbl.set_xalign(0)
         box.pack_start(versies_lbl, False, False, 0)
 
-        # waarmee de achtergrond weggaat: AlphaMaker zwaar (standaard) of licht, of transparent-background
+        # waarmee de achtergrond weggaat: snel (RMBG-1.4, standaard), drukke achtergrond of snel/zakelijk
         motoren = beschikbare_motoren()
         motor_combo = Gtk.ComboBoxText()
         for m in motoren:

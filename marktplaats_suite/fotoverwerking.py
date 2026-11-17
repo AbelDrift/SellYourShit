@@ -9,8 +9,8 @@ Resultaat in de doelmap (zelfde mappen als de oude Product Studio, dus de Upload
   met_logo_bg/      idem, met watermerk/logo
 
 Voorbewerking zoals in de oude Product Studio: draaien volgens EXIF, verkleinen naar 50% en
-eventueel kleuren verbeteren. Achtergrond verwijderen kan met AlphaMaker (zwaar of licht) of met
-transparent-background (zie MOTOREN), altijd in een apart proces (achtergrond_helper.py),
+eventueel kleuren verbeteren. Achtergrond verwijderen gaat met AlphaMaker (zie MOTOREN), altijd in
+een apart proces (achtergrond_helper.py),
 zodat een geheugenpiek of crash van het model de app niet meeneemt. Er staat steeds maar één
 foto tegelijk in het geheugen.
 """
@@ -33,24 +33,24 @@ HELPER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "achtergrond_h
 
 # Motoren voor het weghalen van de achtergrond: naam -> (label, uitleg, benodigde modules)
 MOTOREN = {
+    "alphamaker-snel": (
+        "Snel – effen achtergrond (RMBG-1.4)",
+        "Beste en snelste voor producten en objecten. Alleen voor niet-commercieel gebruik "
+        "(licentie van Bria). Het model (176 MB) wordt de eerste keer gedownload.",
+        ("onnxruntime", "scipy", "numpy")),
     "alphamaker-zwaar": (
-        "AlphaMaker zwaar (InSPyReNet)",
-        "Beste kwaliteit: masker op volle maat en geen gekleurde rand van de oude achtergrond. "
-        "Gebruikt ±4 GB geheugen.",
+        "Drukke achtergrond (InSPyReNet)",
+        "Het model van transparent-background, met de randcorrectie van AlphaMaker. Voor "
+        "rommelige achtergronden; trager en ±4 GB geheugen.",
         ("transparent_background", "scipy", "numpy")),
     "alphamaker-licht": (
-        "AlphaMaker licht (IS-Net)",
-        "Snel en zuinig (±1 GB geheugen), zonder gekleurde rand van de oude achtergrond. "
-        "Goed voor gewone productfoto's.",
+        "Snel, ook zakelijk (IS-Net)",
+        "Iets minder nauwkeurig dan RMBG-1.4, maar commercieel gebruik mag (Apache-2.0).",
         ("onnxruntime", "scipy", "numpy")),
-    "transparent-background": (
-        "transparent-background",
-        "InSPyReNet zoals vroeger, zonder de correcties van AlphaMaker. Gebruikt ±4 GB geheugen.",
-        ("transparent_background",)),
 }
-STANDAARD_MOTOR = "alphamaker-zwaar"
+STANDAARD_MOTOR = "alphamaker-snel"
 # Opgeslagen keuzes van vóór deze standaard worden één keer naar de nieuwe standaard gezet.
-MOTOR_STANDAARD_VERSIE = 2
+MOTOR_STANDAARD_VERSIE = 3
 
 
 def motor_beschikbaar(motor):
