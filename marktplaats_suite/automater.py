@@ -210,7 +210,7 @@ def _is_snap(pad):
     if not pad or IS_WINDOWS:
         return False
     echt = os.path.realpath(pad)
-    if echt.startswith("/snap/") or os.path.basename(echt) == "snap":
+    if pad.startswith("/snap/") or echt.startswith("/snap/") or os.path.basename(echt) == "snap":
         return True
     try:
         with open(echt, "rb") as f:

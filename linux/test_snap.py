@@ -21,6 +21,8 @@ fouten = []
 
 def probeer(browser, pad):
     print(f"== {browser}: {pad} (snap: {am._is_snap(pad)})", flush=True)
+    print(f"   realpath {os.path.realpath(pad)!r}, link {os.path.islink(pad)}"
+          f"{' -> ' + os.readlink(pad) if os.path.islink(pad) else ''}", flush=True)
     auto = am.MarktplaatsAuto({"browser": browser}, log)
     if not auto.start_browser():
         fouten.append(f"{browser} start niet: {auto.last_error}")

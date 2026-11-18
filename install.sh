@@ -19,6 +19,10 @@ done
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PREFIX="${XDG_DATA_HOME:-$HOME/.local/share}/marktplaats-suite"
 VENV="$PREFIX/venv"
+# Zijn de AI-pakketten er nog niet voor de Python van het systeem (bijv. 3.15), dan krijgt het
+# achtergrond weghalen een eigen omgeving met deze Python (via uv); de app zelf blijft op die van het systeem.
+AI_VENV="$PREFIX/ai-venv"
+AI_PYV=3.14
 
 [ "$(id -u)" -ne 0 ] || { echo "Draai dit als gewone gebruiker, niet als root (sudo wordt zelf gebruikt)."; exit 1; }
 
@@ -105,13 +109,27 @@ if [ -e "$VENV/pyvenv.cfg" ]; then
 fi
 "$PY" -m venv --system-site-packages "${OPNIEUW[@]}" "$VENV"
 "$VENV/bin/python" -m pip install --upgrade pip
-AI_MISLUKT=0
+AI_MISLUKT=0; AI_APART=0
 if [ "$MET_AI" -eq 1 ]; then
-  if ! "$VENV/bin/python" -m pip install "$SRC[ai]"; then
-    echo "!!  De AI-pakketten konden niet geïnstalleerd worden voor Python $PYV."
-    echo "    SellYourShit wordt zonder achtergrond weghalen geïnstalleerd; de rest werkt gewoon."
-    AI_MISLUKT=1; MET_AI=0
+  if "$VENV/bin/python" -m pip install "$SRC[ai]"; then
+    rm -rf "$AI_VENV"   # een eerdere aparte AI-omgeving is niet meer nodig
+  else
+    echo "==> De AI-pakketten zijn er nog niet voor Python $PYV."
+    echo "    Achtergrond weghalen krijgt een eigen omgeving met Python $AI_PYV: $AI_VENV"
     "$VENV/bin/python" -m pip install "$SRC"
+    # kleuren verbeteren draait in de app zelf: opencv en numpy daar als het kan
+    "$VENV/bin/python" -m pip install opencv-python numpy tqdm \
+      || echo "   (kleuren verbeteren niet beschikbaar voor Python $PYV)"
+    rm -rf "$AI_VENV"
+    if "$VENV/bin/python" -m pip install uv \
+       && "$VENV/bin/python" -m uv venv --python "$AI_PYV" "$AI_VENV" \
+       && "$VENV/bin/python" -m uv pip install --python "$AI_VENV/bin/python" "$SRC[ai]"; then
+      AI_APART=1
+    else
+      rm -rf "$AI_VENV"
+      echo "!!  Ook dat lukte niet: SellYourShit wordt zonder achtergrond weghalen geïnstalleerd."
+      AI_MISLUKT=1; MET_AI=0
+    fi
   fi
 else
   "$VENV/bin/python" -m pip install "$SRC"
@@ -221,6 +239,8 @@ VERSIE="$("$VENV/bin/python" -c 'import marktplaats_suite as m; print(m.__versio
 echo "==> Klaar: SellYourShit $VERSIE is geïnstalleerd (je ziet het nummer rechtsonder in de app)."
 if [ "$AI_MISLUKT" -eq 1 ]; then
   echo "!!  Zonder AI: de AI-pakketten (torch e.d.) zijn er nog niet voor Python $PYV."
+elif [ "$AI_APART" -eq 1 ]; then
+  echo "    Achtergrond weghalen draait met $("$AI_VENV/bin/python" --version 2>&1) in $AI_VENV"
 fi
 if pgrep -f "python.* -m marktplaats_suite" >/dev/null 2>&1; then
   echo "!!  De oude versie draait nog: sluit SellYourShit en start hem opnieuw."

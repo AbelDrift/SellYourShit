@@ -115,9 +115,42 @@ def _eigen_scope():
     return _scope
 
 
+def _ai_python():
+    """Aparte Python voor het achtergrond weghalen, of None (dan die van de app zelf).
+
+    install.sh maakt 'ai-venv' naast de omgeving van de app als de AI-pakketten er nog niet zijn
+    voor de Python van het systeem (bijvoorbeeld Python 3.15 op Fedora 45). Het hulpproces heeft
+    geen GTK nodig en kan dus met een andere Python draaien dan de app."""
+    if sys.platform.startswith("linux"):
+        apart = os.path.join(os.path.dirname(sys.prefix), "ai-venv", "bin", "python")
+        if os.path.exists(apart):
+            return apart
+    return None
+
+
+_ai_modules = {}
+
+
+def _modules_in(python):
+    """Welke AI-modules die Python heeft (per Python één keer opgevraagd)."""
+    if python not in _ai_modules:
+        alle = sorted({m for (_, _, mods) in MOTOREN.values() for m in mods})
+        code = "import importlib.util, sys; print(' '.join(m for m in sys.argv[1:] if importlib.util.find_spec(m)))"
+        try:
+            uit = subprocess.run([python, "-I", "-c", code, *alle], stdout=subprocess.PIPE,
+                                 stderr=subprocess.DEVNULL, text=True, timeout=60).stdout
+            _ai_modules[python] = set(uit.split())
+        except (OSError, subprocess.SubprocessError):
+            _ai_modules[python] = set()
+    return _ai_modules[python]
+
+
 def motor_beschikbaar(motor):
     if motor not in MOTOREN:
         return False
+    apart = _ai_python()
+    if apart:
+        return all(m in _modules_in(apart) for m in MOTOREN[motor][2])
     return all(importlib.util.find_spec(m) is not None for m in MOTOREN[motor][2])
 
 
@@ -291,6 +324,7 @@ def verwijder_achtergrond(paden, uitmap, voortgang=None, stop=lambda: False, mot
         if os.path.basename(python).lower() == "pythonw.exe" and os.path.exists(kandidaat):
             python = kandidaat
         extra["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    python = _ai_python() or python
     with tempfile.TemporaryFile(mode="w+", encoding="utf-8", errors="replace") as foutlog:
         proc = subprocess.Popen(_eigen_scope() + [python, "-I", HELPER, f"--motor={motor}"] + args,
                                 stdout=subprocess.PIPE, stderr=foutlog,
