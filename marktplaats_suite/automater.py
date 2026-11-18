@@ -205,6 +205,39 @@ def _chrome_pad():
                            r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"])
 
 
+def _is_snap(pad):
+    """Of deze browser een snap is: Ubuntu levert Firefox en Chromium als snap."""
+    if not pad or IS_WINDOWS:
+        return False
+    echt = os.path.realpath(pad)
+    if echt.startswith("/snap/") or os.path.basename(echt) == "snap":
+        return True
+    try:
+        with open(echt, "rb") as f:
+            kop = f.read(4096)
+        return kop.startswith(b"#!") and b"/snap/" in kop   # /usr/bin/firefox op Ubuntu is een startscript
+    except OSError:
+        return False
+
+
+# Een snap-browser kan niet in de /tmp van andere programma's en niet in verborgen mappen zoals
+# ~/.local kijken. Gebruik daarom het programma en de driver uit de snap zelf, met het profiel in ~/snap.
+SNAP_BROWSERS = {
+    "firefox": ("/snap/firefox/current/usr/lib/firefox/firefox",
+                ("/snap/bin/geckodriver", "/snap/bin/firefox.geckodriver"), "~/snap/firefox/common"),
+    "chromium": ("/snap/chromium/current/usr/lib/chromium-browser/chrome",
+                 ("/snap/bin/chromium.chromedriver",), "~/snap/chromium/common"),
+}
+
+
+def _snap_onderdelen(naam):
+    """(programma, driver, profielmap) voor een snap-browser; None voor wat er niet is."""
+    programma, drivers, map_ = SNAP_BROWSERS[naam]
+    driver = next((d for d in drivers if os.path.exists(d)), None)
+    return (programma if os.path.exists(programma) else None, driver,
+            os.path.join(os.path.expanduser(map_), "sellyourshit_profiel"))
+
+
 # ============================================
 # MARKTPLAATS AUTOMATOR
 # ============================================
@@ -376,7 +409,9 @@ class MarktplaatsAuto:
             os.environ.pop(k, None)
         keuze = self.config.get('browser', 'auto')
         if keuze == 'auto':
-            keuze = 'firefox' if _firefox_pad() else 'chrome'
+            ff, ch = _firefox_pad(), _chrome_pad()
+            # een gewone (niet-snap) Chrome werkt het zekerst als Firefox een snap is (Ubuntu)
+            keuze = 'chrome' if (ff and _is_snap(ff) and ch and not _is_snap(ch)) else ('firefox' if ff else 'chrome')
         return self._start_firefox() if keuze == 'firefox' else self._start_chrome()
 
     def _start_firefox(self):
@@ -390,6 +425,11 @@ class MarktplaatsAuto:
             return False
         # Eigen profiel: één keer inloggen op Marktplaats, daarna onthouden.
         profiel = os.path.join(data_dir(), "firefox_profiel")
+        driver = None
+        if _is_snap(pad):
+            programma, driver, profiel = _snap_onderdelen("firefox")
+            pad = programma or pad
+            self.logger.info("   Firefox is een snap: driver en profiel uit de snap")
         os.makedirs(profiel, exist_ok=True)
         opts = FFOptions()
         opts.binary_location = pad
@@ -398,7 +438,11 @@ class MarktplaatsAuto:
         opts.set_preference("dom.webdriver.enabled", False)
         opts.set_preference("useAutomationExtension", False)
         try:
-            self.driver = webdriver.Firefox(options=opts)
+            if driver:
+                from selenium.webdriver.firefox.service import Service as FFService
+                self.driver = webdriver.Firefox(options=opts, service=FFService(executable_path=driver))
+            else:
+                self.driver = webdriver.Firefox(options=opts)
             try:
                 self.driver.set_window_size(1600, 1000)
             except Exception:
@@ -429,6 +473,14 @@ class MarktplaatsAuto:
             profile = "Default"
             os.makedirs(user_data_dir, exist_ok=True)
         pad = _chrome_pad()
+        driver = None
+        if pad and _is_snap(pad):
+            programma, driver, snap_profiel = _snap_onderdelen("chromium")
+            pad = programma or pad
+            if user_data_dir == os.path.join(data_dir(), "chrome_profiel"):
+                user_data_dir = snap_profiel
+                os.makedirs(user_data_dir, exist_ok=True)
+            self.logger.info("   Chromium is een snap: driver en profiel uit de snap")
         if pad:
             options.binary_location = pad
         else:
@@ -447,7 +499,11 @@ class MarktplaatsAuto:
         options.add_argument('--window-size=1920,1080')
 
         try:
-            self.driver = webdriver.Chrome(options=options)
+            if driver:
+                from selenium.webdriver.chrome.service import Service as ChromeService
+                self.driver = webdriver.Chrome(options=options, service=ChromeService(executable_path=driver))
+            else:
+                self.driver = webdriver.Chrome(options=options)
             self.wait = WebDriverWait(self.driver, 15)
             self.logger.success("Chrome gestart!")
             return True

@@ -270,7 +270,20 @@ def lettertype_vet():
         fonts = os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts")
         kandidaten = [os.path.join(fonts, n) for n in ("arialbd.ttf", "segoeuib.ttf", "verdanab.ttf")]
     else:
-        kandidaten = ["/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-                      "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
-                      "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"]
-    return next((k for k in kandidaten if os.path.exists(k)), None)
+        kandidaten = ["/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",       # Debian, Ubuntu
+                      "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",                   # Arch
+                      "/usr/share/fonts/dejavu-sans-fonts/DejaVuSans-Bold.ttf",     # Fedora
+                      "/usr/share/fonts/truetype/DejaVuSans-Bold.ttf",              # openSUSE
+                      "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+                      "/usr/share/fonts/liberation-sans/LiberationSans-Bold.ttf"]
+    gevonden = next((k for k in kandidaten if os.path.exists(k)), None)
+    if gevonden or IS_WINDOWS:
+        return gevonden
+    try:   # anders fontconfig vragen welk vet schreefloos lettertype er is
+        pad = subprocess.run(["fc-match", "-f", "%{file}", "sans:bold"], stdout=subprocess.PIPE,
+                             stderr=subprocess.DEVNULL, text=True, timeout=5).stdout.strip()
+        if pad.lower().endswith((".ttf", ".otf", ".ttc")) and os.path.exists(pad):
+            return pad
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return None

@@ -2,8 +2,9 @@
 
 <p align="center"><img src="marktplaats_suite/assets/icon.png" width="160" alt="SellYourShit logo"></p>
 
-**SellYourShit** is één app met alle Marktplaats-tools van HerNieuw, voor **Debian en Ubuntu** (en afgeleiden)
-en **Windows 10/11** (installatieprogramma, zie [Installeren op Windows](#installeren-op-windows)):
+**SellYourShit** is één app met alle Marktplaats-tools van HerNieuw, voor **Linux** (Debian, Ubuntu, Linux Mint,
+Fedora, Arch, openSUSE en afgeleiden) en **Windows 10/11** (installatieprogramma, zie
+[Installeren op Windows](#installeren-op-windows)):
 
 Alles in **één venster** met tabs:
 
@@ -21,20 +22,30 @@ Algemene voorwaarden bewerk je in een eigen tekstvak met vet/schuin (knoppen of 
 uit .docx/.txt, een voorbeeld zoals het op Marktplaats verschijnt, en een vinkje om voorwaarden wel of niet
 onder advertenties te plaatsen.
 
-## Installeren (Debian en Ubuntu)
+## Installeren op Linux
 
 ```bash
 git clone https://github.com/AbelDrift/SellYourShit.git
 cd SellYourShit
 ./install.sh                 # basis
-./install.sh --met-chrome    # + Google Chrome (amd64) voor de Automater
+./install.sh --met-chrome    # + Google Chrome (of Chromium) voor de Automater
 ./install.sh --met-ai        # + AI-achtergrondverwijdering met AlphaMaker (licht/medium/zwaar; groot: torch)
 ```
 
-Wat het doet: apt-pakketten (`python3-gi`, `gir1.2-gtk-3.0`, `imagemagick`, …), een eigen
+Getest (GitHub Actions, met `--met-ai`) op **Debian 12 en 13**, **Ubuntu 22.04, 24.04, 26.04 en 26.10**
+(dus ook Linux Mint, Pop!_OS en Zorin), **Fedora**, **Arch Linux** (ook Manjaro en EndeavourOS) en
+**openSUSE Tumbleweed**. Het script kiest zelf de pakketbeheerder (apt, dnf, pacman of zypper).
+
+Wat het doet: systeempakketten (Python 3 met PyGObject, GTK 3, lettertypen), een eigen
 virtuele omgeving in `~/.local/share/marktplaats-suite/venv` (met `--system-site-packages`,
 dus geen conflict met PEP 668), starters in `~/.local/bin` en het applicatiemenu.
+Na een systeemupgrade met een nieuwere Python maakt het de omgeving vanzelf opnieuw.
+Zijn de AI-pakketten er (nog) niet voor jouw Python, dan installeert het de app zonder AI en zegt het dat.
 Verwijderen: `./uninstall.sh` (`--alles` wist ook je gegevens).
+
+Ubuntu levert Firefox en Chromium als *snap*. De Automater gebruikt dan de driver uit de snap en
+bewaart het browserprofiel in `~/snap/firefox/common` (of `~/snap/chromium/common`). Staat er ook een
+gewone Google Chrome (`./install.sh --met-chrome`), dan kiest hij bij *automatisch* die.
 
 ## Installeren op Windows
 
