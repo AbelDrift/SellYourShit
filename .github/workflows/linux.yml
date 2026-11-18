@@ -71,6 +71,8 @@ jobs:
             mkdir -p /tmp/leeg /tmp/uit
             ls ~/.local/share/marktplaats-suite/
             echo \"lettertypen: \$(fc-list : family | sort -u | tr '\\n' ';')\"
+            fc-list | grep -i emoji || echo 'geen emoji-lettertype'
+            command -v pacman >/dev/null && pacman -Q | grep -i -E 'noto|emoji|webp'
             test -x ~/.local/share/marktplaats-suite/ai-venv/bin/python && echo \"aparte AI-omgeving: \$(~/.local/share/marktplaats-suite/ai-venv/bin/python --version)\"
             ~/.local/share/marktplaats-suite/venv/bin/python '$GITHUB_WORKSPACE/windows/test_windows.py' /tmp/leeg /tmp/uit"
 

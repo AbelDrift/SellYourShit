@@ -75,7 +75,7 @@ case "$PM" in
       || { echo "Tip: werk eerst je systeem bij met: sudo pacman -Syu"; exit 1; } ;;
   zypper)
     installeer python3 python3-pip python3-gobject python3-gobject-cairo python3-gobject-Gdk \
-      typelib-1_0-Gtk-3_0 xdg-utils desktop-file-utils ca-certificates ;;
+      typelib-1_0-Gtk-3_0 libgthread-2_0-0 xdg-utils desktop-file-utils ca-certificates ;;
 esac
 # lettertypen (tekst op etiketten, emoji in de app), webp-foto's bekijken en 'Open in GIMP'
 case "$PM" in
