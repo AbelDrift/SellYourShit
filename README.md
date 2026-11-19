@@ -32,15 +32,19 @@ cd SellYourShit
 ./install.sh --met-ai        # + AI-achtergrondverwijdering met AlphaMaker (licht/medium/zwaar; groot: torch)
 ```
 
-Getest (GitHub Actions, met `--met-ai`) op **Debian 12 en 13**, **Ubuntu 22.04, 24.04, 26.04 en 26.10**
-(dus ook Linux Mint, Pop!_OS en Zorin), **Fedora**, **Arch Linux** (ook Manjaro en EndeavourOS) en
-**openSUSE Tumbleweed**. Het script kiest zelf de pakketbeheerder (apt, dnf, pacman of zypper).
+Getest met GitHub Actions (`install.sh --met-ai`, de app starten, achtergrond weghalen met licht, medium
+en zwaar, een product registreren) op **Debian 12 en 13**, **Ubuntu 22.04, 24.04, 26.04 en 26.10**
+(dus ook Linux Mint, Pop!_OS en Zorin), **Fedora 45**, **Arch Linux** (ook Manjaro en EndeavourOS) en
+**openSUSE Tumbleweed**, en de Automater met Firefox en Chromium als snap op Ubuntu 26.04.
+Het script kiest zelf de pakketbeheerder (apt, dnf, pacman of zypper).
 
 Wat het doet: systeempakketten (Python 3 met PyGObject, GTK 3, lettertypen), een eigen
 virtuele omgeving in `~/.local/share/marktplaats-suite/venv` (met `--system-site-packages`,
 dus geen conflict met PEP 668), starters in `~/.local/bin` en het applicatiemenu.
 Na een systeemupgrade met een nieuwere Python maakt het de omgeving vanzelf opnieuw.
-Zijn de AI-pakketten er (nog) niet voor jouw Python, dan installeert het de app zonder AI en zegt het dat.
+Zijn de AI-pakketten er nog niet voor jouw Python (zoals Python 3.15 op Fedora 45), dan krijgt het
+achtergrond weghalen een eigen omgeving met Python 3.14 (via [uv](https://docs.astral.sh/uv/), in
+`~/.local/share/marktplaats-suite/ai-venv`); de app zelf draait gewoon op de Python van je systeem.
 Verwijderen: `./uninstall.sh` (`--alles` wist ook je gegevens).
 
 Ubuntu levert Firefox en Chromium als *snap*. De Automater gebruikt dan de driver uit de snap en
